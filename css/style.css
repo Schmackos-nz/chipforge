@@ -173,3 +173,13 @@ table.keys td:first-child { font-family: Consolas, monospace; color: var(--acc);
 ::-webkit-scrollbar-thumb { background: #353b48; border-radius: 6px; border: 2px solid #121419; }
 ::-webkit-scrollbar-thumb:hover { background: #46506a; }
 ::-webkit-scrollbar-corner { background: #121419; }
+
+/* parts editor + modal tabs */
+.parts { display: flex; flex-direction: column; gap: 4px; }
+.prow { display: grid; grid-template-columns: 22px 150px 140px 1fr 78px 70px 28px 28px; gap: 5px; align-items: center; background: #181b21; border: 1px solid var(--line); border-radius: 5px; padding: 4px 6px; }
+.prow select { min-width: 0; }
+.prow button { padding: 2px 0; }
+.pnum { color: var(--dim); font-family: Consolas, monospace; text-align: center; }
+.mtabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.mtabs button { padding: 6px 14px; }
+@media (max-width: 760px) { .prow { grid-template-columns: 22px 1fr 1fr; } }

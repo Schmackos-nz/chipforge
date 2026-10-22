@@ -61,6 +61,8 @@ const PRESETS = [
   { name: 'Noise Hat', cat: 'Drums', p: { type: 'noise', a: 0.001, d: 0.05, s: 0, r: 0.02, hpf: 4000, vol: 0.5 } },
   { name: 'Noise Snare', cat: 'Drums', p: { type: 'noise', a: 0.001, d: 0.16, s: 0, r: 0.05, vol: 0.6 } },
   { name: 'Metallic Noise', cat: 'Drums', p: { type: 'noise', noiseMode: 'short', a: 0.001, d: 0.2, s: 0.2, r: 0.1, vol: 0.45 } },
+  { name: 'Shaker', cat: 'Drums', p: { type: 'noise', a: 0.004, d: 0.035, s: 0, r: 0.02, hpf: 6500, vol: 0.4 } },
+  { name: 'Bell Sparkle', cat: 'Lead', p: { type: 'sine', a: 0.001, d: 0.35, s: 0, r: 0.25, delay: 0.35, reverb: 0.3, vol: 0.4 } },
   { name: 'Drum Kit', cat: 'Drums', p: { type: 'drums', vol: 0.8 } },
   { name: 'Crunchy Kit', cat: 'Drums', p: { type: 'drums', bits: 5, drive: 0.2, vol: 0.75 } },
 ];

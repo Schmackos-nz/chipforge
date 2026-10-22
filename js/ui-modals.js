@@ -28,102 +28,243 @@ function askText(title, value) {
 function keyOptions(sel) { return NOTE_NAMES.map((n, i) => h('option', { value: i, selected: i === sel }, n)); }
 function scaleOptions(sel) { return Object.keys(SCALES).map(k => h('option', { value: k, selected: k === sel }, SCALES[k].name)); }
 
+// ------------------------------------------------------------------ Part list editor (shared)
+// Up to Gen.MAX_PARTS rows: role · style · instrument (preset or existing track) · octave · volume.
+function PartsEditor(initial, opt) {
+  opt = opt || {};
+  let parts = initial.map(p => Object.assign({}, p));
+  const list = h('div', { class: 'parts' });
+  const countLbl = h('span', { class: 'chip' });
+  const addBtn = h('button', { title: 'Add another part' }, '＋ Add part');
+  const roleOpts = () => Object.keys(Gen.ROLES).map(r => [r, Gen.ROLES[r].name]);
+  const presetOpts = (sel, track) => {
+    const cats = {};
+    for (const p of PRESETS) (cats[p.cat] = cats[p.cat] || []).push(p);
+    const out = [];
+    if (opt.tracks && opt.tracks.length) out.push(h('optgroup', { label: 'Existing track' }, opt.tracks.map(t => h('option', { value: 'track:' + t.id, selected: track === t.id }, '→ ' + t.name))));
+    for (const c in cats) out.push(h('optgroup', { label: c }, cats[c].map(p => h('option', { value: p.name, selected: !track && p.name === sel }, p.name))));
+    return out;
+  };
+  const render = () => {
+    list.innerHTML = '';
+    parts.forEach((p, i) => {
+      const R = Gen.ROLES[p.role];
+      const role = h('select', { title: 'What this part plays' }, roleOpts().map(([v, l]) => h('option', { value: v, selected: v === p.role }, l)));
+      role.onchange = () => { const np = Gen.part(role.value); np.octave = p.octave; parts[i] = np; render(); };
+      const style = h('select', { title: 'How it plays' }, R.styles.map(([v, l]) => h('option', { value: v, selected: v === p.style }, l)));
+      style.onchange = () => { p.style = style.value; };
+      const inst = h('select', { title: 'Instrument preset (or write into an existing track)' }, presetOpts(p.preset, p.track));
+      inst.onchange = () => { if (inst.value.startsWith('track:')) { p.track = inst.value.slice(6); } else { p.track = null; p.preset = inst.value; } };
+      const oct = h('select', { title: 'Register (octaves)' }, [-2, -1, 0, 1, 2].map(v => h('option', { value: v, selected: v === (p.octave || 0) }, (v > 0 ? '+' : '') + v + ' oct')));
+      oct.onchange = () => { p.octave = +oct.value; };
+      const vol = h('input', { type: 'range', min: 5, max: 110, value: Math.round((p.vol != null ? p.vol : R.vol) * 100), title: 'Volume', style: { width: '64px' } });
+      vol.oninput = () => { p.vol = vol.value / 100; };
+      const test = h('button', { title: 'Hear this instrument', onclick: () => {
+        const eng = AE.ensure();
+        const tr = { id: '__preview', inst: p.track ? getTrack(p.track).inst : instFromPreset(p.preset) };
+        eng.syncTrack(tr, true);
+        const now = AE.ctx.currentTime + 0.02;
+        if (tr.inst.type === 'drums') [36, 42, 38, 42].forEach((n, k) => eng.noteOn(tr, n, 110, now + k * 0.15, 0.1));
+        else [60, 64, 67, 72].forEach((n, k) => eng.noteOn(tr, n + 12 * (p.octave || 0) - (p.role === 'bass' ? 24 : 0), 105, now + k * 0.15, 0.13));
+      } }, '▶');
+      const del = h('button', { class: 'danger', title: 'Remove part', onclick: () => { parts.splice(i, 1); render(); } }, '✕');
+      list.append(h('div', { class: 'prow' }, h('span', { class: 'pnum' }, i + 1), role, style, inst, oct, vol, test, del));
+    });
+    countLbl.textContent = parts.length + ' / ' + Gen.MAX_PARTS + ' parts';
+    addBtn.disabled = parts.length >= Gen.MAX_PARTS;
+  };
+  addBtn.onclick = () => {
+    const used = new Set(parts.map(p => p.role));
+    const next = ['arp', 'pad', 'perc', 'bells', 'counter', 'double', 'chords', 'lead', 'bass', 'drums'].find(r => !used.has(r)) || 'arp';
+    parts.push(Gen.part(next));
+    render();
+  };
+  const nSel = h('select', { title: 'How many parts' }, Array.from({ length: Gen.MAX_PARTS }, (_, i) => h('option', { value: i + 1, selected: i + 1 === 6 }, (i + 1) + ' parts')));
+  const rnd = h('button', { title: 'Pick a random band of this size' }, '🎲 Random band');
+  rnd.onclick = () => { parts = Gen.randomBand(+nSel.value, makeRng(Math.floor(Math.random() * 1e9))); render(); };
+  render();
+  const el = h('div', null, list, h('div', { class: 'frow', style: { marginTop: '6px' } }, addBtn, nSel, rnd, countLbl, opt.extraButtons || null));
+  return {
+    el,
+    get: () => parts.map(p => Object.assign({}, p)),
+    set: ps => { parts = ps.map(p => Object.assign({}, p)); render(); },
+  };
+}
+
 // ------------------------------------------------------------------ Compose / Extend
-function openCompose() {
+let _composeTab = 'extend';
+function openCompose(tab) {
+  if (tab) _composeTab = tab;
   const s = App.song;
   const an = Gen.analyze(s);
   const barSec = s.beatsPerBar * 60 / s.bpm;
   const curSec = an.nBars * barSec;
+
+  // shared controls
+  const seedIn = h('input', { type: 'number', value: Math.floor(Math.random() * 9999), style: { width: '80px' } });
+  const dice = h('button', { title: 'New random seed', onclick: () => { seedIn.value = Math.floor(Math.random() * 99999); } }, '🎲');
+  const creat = h('input', { type: 'range', min: 0, max: 100, value: 50, style: { width: '140px' } });
+  const creatLbl = h('span', null, 'Balanced');
+  creat.oninput = () => { const v = +creat.value; creatLbl.textContent = v < 25 ? 'Faithful (lots of repeats)' : v < 60 ? 'Balanced' : v < 85 ? 'Adventurous' : 'Wild'; };
+  const seed = () => +seedIn.value || 1;
+  const shared = h('div', null,
+    h('div', { class: 'frow' }, h('label', null, 'Creativity'), creat, creatLbl),
+    h('div', { class: 'frow' }, h('label', null, 'Seed'), seedIn, dice, h('span', { class: 'empty', style: { padding: 0 } }, 'Same seed = same result. Everything here is undoable (Ctrl+Z).')));
+
   const keySel = h('select', null, h('option', { value: 'auto' }, 'Auto: ' + NOTE_NAMES[an.key.root] + ' ' + SCALES[an.key.scale].name),
     NOTE_NAMES.map((n, i) => Object.keys(SCALES).map(sc => h('option', { value: i + '|' + sc }, n + ' ' + SCALES[sc].name))));
   const keyOv = () => { if (keySel.value === 'auto') return null; const [r, sc] = keySel.value.split('|'); return { root: +r, scale: sc }; };
+
+  const finish = msg => { Modal.close(); afterLoad(); UI.syncTop(); ARR.layout(); UI.setView('arrange'); toast(msg, 5000); };
+  const attempt = fn => { pushUndo(); try { fn(); } catch (e) { App.undoStack.pop(); toast(e.message, 4500); } };
+
+  // --- Extend tab
+  const target = h('input', { value: fmtTime(Math.max(curSec * 3, 180)), style: { width: '80px' } });
+  const est = h('span', { class: 'chip' });
+  const updEst = () => { const t = parseTime(target.value); est.textContent = t ? Math.ceil(t / barSec) + ' bars' : '?'; };
+  target.oninput = updEst; updEst();
+  const ending = h('input', { type: 'checkbox', checked: true });
+  const presets = [['2:00', 120], ['3:00', 180], ['5:00', 300], ['10:00', 600]].map(([l]) => h('button', { style: { padding: '1px 6px' }, onclick: () => { target.value = l; updEst(); } }, l));
   const roles = an.tracks.filter(t => t.role !== 'empty').map(t => h('span', { class: 'chip', title: t.tr.name }, t.tr.name + ': ' + t.role));
   const chordChips = [];
   for (let b = 0; b < Math.min(an.nBars, 16); b++) {
     const a = an.chords[b * 2], c = an.chords[b * 2 + 1];
     chordChips.push(h('span', { class: 'chip', title: 'Bar ' + (b + 1) }, chordsEqual(a, c) ? chordName(a) : chordName(a) + ' ' + chordName(c)));
   }
-  const seedIn = h('input', { type: 'number', value: Math.floor(Math.random() * 9999), style: { width: '80px' } });
-  const dice = h('button', { title: 'New random seed', onclick: () => { seedIn.value = Math.floor(Math.random() * 99999); } }, '🎲');
-  const creat = h('input', { type: 'range', min: 0, max: 100, value: 50, style: { width: '140px' } });
-  const creatLbl = h('span', null, 'Balanced');
-  creat.oninput = () => { const v = +creat.value; creatLbl.textContent = v < 25 ? 'Faithful (lots of repeats)' : v < 60 ? 'Balanced' : v < 85 ? 'Adventurous' : 'Wild'; };
-  const target = h('input', { value: fmtTime(Math.max(curSec * 3, 180)), style: { width: '80px' } });
-  const est = h('span', { class: 'chip' });
-  const updEst = () => { const t = parseTime(target.value); est.textContent = t ? Math.ceil(t / barSec) + ' bars' : '?'; };
-  target.oninput = updEst; updEst();
-  const ending = h('input', { type: 'checkbox', checked: true });
-  const presets = h('span', null, [['2:00', 120], ['3:00', 180], ['5:00', 300], ['10:00', 600]].map(([l, v]) => h('button', { style: { padding: '1px 6px' }, onclick: () => { target.value = l; updEst(); } }, l)));
-  const opts = () => ({ creativity: +creat.value / 100, seed: +seedIn.value || 1, key: keyOv(), ending: ending.checked });
-
-  const doExtend = () => {
-    const t = parseTime(target.value);
-    if (!t) return toast('Enter a length like 5:00');
-    pushUndo();
-    try {
-      const r = Gen.extend(App.song, t, opts());
-      Modal.close();
-      changed({ full: true });
-      ARR.layout();
-      UI.setView('arrange');
-      toast(`Extended by ${r.added} bars in ${r.sections} sections (${NOTE_NAMES[r.key.root]} ${SCALES[r.key.scale].name}) — Ctrl+Z to undo`, 5000);
-    } catch (e) { App.undoStack.pop(); toast(e.message, 4000); }
-  };
-  const doFill = () => {
-    pushUndo();
-    try {
-      const r = Gen.fillGaps(App.song, opts());
-      Modal.close(); changed({ full: true });
-      toast('Filled ' + r.filled + ' silent bars — Ctrl+Z to undo', 4000);
-    } catch (e) { App.undoStack.pop(); toast(e.message, 4000); }
-  };
-
-  const styleSel = h('select', null, Object.keys(Gen.STYLES).map(k => h('option', { value: k }, Gen.STYLES[k].name)));
-  const nsKey = h('select', null, h('option', { value: 'r' }, 'Random key'), keyOptions(-1));
-  const nsLen = h('input', { value: '1:30', style: { width: '70px' } });
-  const doNew = () => {
-    const len = parseTime(nsLen.value) || 0;
-    pushUndo();
-    try {
-      App.song = Gen.newSong(styleSel.value, { seed: +seedIn.value || 1, key: nsKey.value === 'r' ? null : +nsKey.value, lengthSec: len, creativity: +creat.value / 100 });
-      App.selTrack = null; App.selPattern = null;
-      Modal.close();
-      afterLoad();
-      UI.syncTop();
-      ARR.layout();
-      UI.setView('arrange');
-      toast('New ' + Gen.STYLES[styleSel.value].name + ' song — Ctrl+Z to get your old one back', 4500);
-    } catch (e) { App.undoStack.pop(); toast(e.message, 4000); }
-  };
-
-  const body = h('div', null,
-    h('div', { class: 'card', style: { marginBottom: '12px' } },
+  const extendTab = h('div', null,
+    h('div', { class: 'card', style: { marginBottom: '10px' } },
       h('h3', null, 'What I hear in your song'),
-      h('p', null, `${an.nBars} bars (${fmtTime(curSec)}) at ${s.bpm} BPM · detected key `, h('b', null, NOTE_NAMES[an.key.root] + ' ' + SCALES[an.key.scale].name)),
+      h('p', null, `${an.nBars} bars (${fmtTime(curSec)}) at ${s.bpm} BPM · key `, h('b', null, NOTE_NAMES[an.key.root] + ' ' + SCALES[an.key.scale].name)),
       h('div', { class: 'chips' }, roles.length ? roles : h('span', { class: 'chip err' }, 'no notes yet')),
       h('div', { class: 'chips' }, chordChips)),
-    h('div', { class: 'frow' }, h('label', null, 'Key'), keySel),
-    h('div', { class: 'frow' }, h('label', null, 'Creativity'), creat, creatLbl),
-    h('div', { class: 'frow' }, h('label', null, 'Seed'), seedIn, dice, h('span', { class: 'empty', style: { padding: 0 } }, 'Same seed = same result. Undo and re-roll if you don’t like it.')),
     h('div', { class: 'mgrid' },
       h('div', { class: 'card' },
         h('h3', null, '⟶ Extend song'),
-        h('p', null, 'Grows the song to the target length in sections: repeats, variations (same chords, re-worked melodies), new sections (fresh chord progression in your style, your parts re-harmonised onto it), breakdowns and an outro.'),
+        h('p', null, 'Grows the song to the target length in 8-bar sections: repeats, variations, new sections (fresh progression in your style with your parts re-harmonised onto it), breakdowns and an outro.'),
         h('div', { class: 'frow' }, h('label', null, 'Target length'), target, est),
         h('div', { class: 'frow' }, presets),
         h('div', { class: 'frow' }, h('label', null, ending, ' End with an outro')),
-        h('button', { class: 'big purple', onclick: doExtend }, '✨ Extend')),
+        h('div', { class: 'frow' }, h('label', null, 'Key'), keySel),
+        h('button', { class: 'big purple', onclick: () => {
+          const t = parseTime(target.value);
+          if (!t) return toast('Enter a length like 5:00');
+          attempt(() => {
+            const r = Gen.extend(App.song, t, { creativity: +creat.value / 100, seed: seed(), key: keyOv(), ending: ending.checked });
+            finish(`Extended by ${r.added} bars in ${r.sections} sections — Ctrl+Z to undo`);
+          });
+        } }, '✨ Extend')),
       h('div', { class: 'card' },
         h('h3', null, '▦ Fill silent gaps'),
-        h('p', null, 'Finds bars where every track is silent (between your first and last bars) and writes material into them from the surrounding sections.'),
-        h('button', { class: 'big purple', onclick: doFill }, '✨ Fill gaps'),
-        h('h3', { style: { marginTop: '16px' } }, '★ New song from a style'),
-        h('p', null, 'Replaces the project with a fresh 4-track song (undoable). Pick a length to have it extended automatically.'),
+        h('p', null, 'Writes material into bars where every track is silent (between your first and last bars), built from the surrounding sections.'),
+        h('button', { class: 'big purple', onclick: () => attempt(() => { const r = Gen.fillGaps(App.song, { creativity: +creat.value / 100, seed: seed(), key: keyOv() }); finish('Filled ' + r.filled + ' silent bars — Ctrl+Z to undo'); }) }, '✨ Fill gaps'))));
+
+  // --- Add parts tab
+  const addEd = PartsEditor([Gen.part('counter', 'thirds'), Gen.part('bells', 'sparse'), Gen.part('perc', 'hats8')]);
+  const fromBar = h('input', { type: 'number', min: 1, value: 1, style: { width: '64px' } });
+  const addTab = h('div', null,
+    h('p', { class: 'empty', style: { padding: '0 0 8px' } }, 'Add new players to the song you already have. They follow its chords bar by bar; counter-melodies and echoes follow its lead line. Silent stretches stay silent.'),
+    addEd.el,
+    h('div', { class: 'frow', style: { marginTop: '10px' } }, h('label', null, 'Start at bar'), fromBar,
+      h('button', { class: 'big purple', onclick: () => attempt(() => {
+        const ps = addEd.get();
+        if (!ps.length) throw new Error('Add at least one part');
+        const r = Gen.addParts(App.song, ps, { seed: seed(), startBar: (+fromBar.value || 1) - 1, key: keyOv() });
+        finish('Added ' + r.tracks.length + ' part(s) — Ctrl+Z to undo');
+      }) }, '✨ Add parts')));
+
+  // --- New song tab
+  const styleSel = h('select', null, Object.keys(Gen.STYLES).map(k => h('option', { value: k }, Gen.STYLES[k].name)));
+  const nsKey = h('select', null, h('option', { value: 'r' }, 'Random key'), keyOptions(-1));
+  const nsScale = h('select', null, h('option', { value: '' }, 'Style default'), scaleOptions(''));
+  const nsBpm = h('input', { type: 'number', min: 40, max: 260, placeholder: 'style', style: { width: '70px' } });
+  const nsProg = h('input', { placeholder: 'style default — or e.g. i bVI bIII bVII', style: { flex: 1, minWidth: '180px' } });
+  const nsLen = h('input', { value: '2:00', style: { width: '70px' } });
+  const nsBars = h('select', null, h('option', { value: 8 }, '8-bar theme'), h('option', { value: 16 }, '16-bar theme'));
+  const nsLayer = h('input', { type: 'checkbox', checked: true });
+  const nsMotif = h('input', { placeholder: 'optional, e.g. E G A G E D', style: { width: '200px' } });
+  const newEd = PartsEditor(Gen.STYLES.overworld.parts);
+  styleSel.onchange = () => newEd.set(Gen.STYLES[styleSel.value].parts);
+  const motifPitches = txt => {
+    if (!txt.trim()) return null;
+    const o = Gen.interpret('motif: ' + txt);
+    return o.motif || null;
+  };
+  const buildNew = (styleKey, o, msg) => attempt(() => {
+    if (Transport.playing) Transport.stop();
+    App.song = Gen.newSong(styleKey, Object.assign({ seed: seed(), creativity: +creat.value / 100 }, o));
+    App.selTrack = null; App.selPattern = null;
+    finish(msg);
+  });
+  const newTab = h('div', null,
+    h('div', { class: 'mgrid' },
+      h('div', null,
         h('div', { class: 'frow' }, h('label', null, 'Style'), styleSel),
-        h('div', { class: 'frow' }, h('label', null, 'Key'), nsKey),
-        h('div', { class: 'frow' }, h('label', null, 'Length'), nsLen),
-        h('button', { class: 'big', onclick: doNew }, '★ Generate song'))));
-  Modal.open('✨ Compose / Extend', body, true);
+        h('div', { class: 'frow' }, h('label', null, 'Key / scale'), nsKey, nsScale),
+        h('div', { class: 'frow' }, h('label', null, 'Tempo (BPM)'), nsBpm),
+        h('div', { class: 'frow' }, h('label', null, 'Chords'), nsProg)),
+      h('div', null,
+        h('div', { class: 'frow' }, h('label', null, 'Length'), nsLen, nsBars),
+        h('div', { class: 'frow' }, h('label', null, 'Melody motif'), nsMotif),
+        h('div', { class: 'frow' }, h('label', null, nsLayer, ' Build up from an intro')))),
+    h('h3', { style: { margin: '8px 0 6px', fontSize: '13px', color: 'var(--acc)' } }, 'Band'),
+    newEd.el,
+    h('div', { class: 'frow', style: { justifyContent: 'flex-end', marginTop: '10px' } },
+      h('button', { class: 'big', onclick: () => {
+        const ps = newEd.get();
+        if (!ps.length) return toast('Add at least one part');
+        buildNew(styleSel.value, {
+          key: nsKey.value === 'r' ? null : +nsKey.value, scale: nsScale.value || null, bpm: +nsBpm.value || null, prog: nsProg.value,
+          lengthSec: parseTime(nsLen.value) || 0, bars: +nsBars.value, layer: nsLayer.checked, parts: ps, motif: motifPitches(nsMotif.value),
+        }, 'New ' + Gen.STYLES[styleSel.value].name + ' song with ' + ps.length + ' parts — Ctrl+Z to get your old one back');
+      } }, '★ Generate song')));
+
+  // --- Describe tab
+  const desc = h('textarea', { rows: 5, placeholder: 'Describe the song…' });
+  desc.value = 'A spooky haunted castle at night, slow and atmospheric with music box bells and a walking bass, builds from an intro, 3 minutes. Motif: E G F# E B';
+  const understood = h('div', { class: 'chips' });
+  const show = o => { understood.innerHTML = ''; for (const n of o.notes) understood.append(h('span', { class: 'chip' }, n)); for (const p of o.parts) understood.append(h('span', { class: 'chip', style: { borderColor: '#7d61c4' } }, Gen.ROLES[p.role].short + ' · ' + p.style)); };
+  const read = () => { const o = Gen.interpret(desc.value, seed()); show(o); return o; };
+  desc.oninput = debounce(read, 250);
+  const toForm = o => {
+    styleSel.value = o.style;
+    nsKey.value = o.key != null ? String(o.key) : 'r';
+    nsScale.value = o.scale || '';
+    nsBpm.value = o.bpm || '';
+    nsProg.value = o.prog || '';
+    nsLen.value = o.lengthSec ? fmtTime(o.lengthSec) : '2:00';
+    nsLayer.checked = !!o.layer;
+    nsMotif.value = o.motif ? o.motif.map(noteName).join(' ') : '';
+    newEd.set(o.parts);
+  };
+  const descTab = h('div', null,
+    h('p', { class: 'empty', style: { padding: '0 0 8px' } }, 'Write what the song should feel like. Places, moods, speed, instruments, length, key (“in D minor”), chords (“chords: i VI III VII”) and a melody (“motif: E G A G”) are all understood. Everything is interpreted offline in the app.'),
+    desc,
+    h('div', { class: 'frow', style: { marginTop: '6px' } },
+      ['Sunny seaside town, cheerful and bouncy with a flute, 2 minutes', 'Frantic escape from a collapsing space station, 9 instruments, very fast', 'Sad rainy goodbye in A minor, minimal, slow, 1:30', 'Epic final boss in a volcano, gritty, driving, with echo', 'Dreamy puzzle menu with chimes, no drums']
+        .map(t => h('button', { style: { padding: '1px 6px', fontSize: '11px' }, onclick: () => { desc.value = t; read(); } }, t.split(',')[0]))),
+    h('h3', { style: { margin: '10px 0 4px', fontSize: '13px', color: 'var(--acc)' } }, 'Understood'),
+    understood,
+    h('div', { class: 'frow', style: { justifyContent: 'flex-end', marginTop: '10px' } },
+      h('button', { onclick: () => { toForm(read()); setTab('new'); } }, 'Edit details first →'),
+      h('button', { class: 'big purple', onclick: () => {
+        const o = read();
+        buildNew(o.style, { key: o.key, scale: o.scale, bpm: o.bpm, prog: o.prog, lengthSec: o.lengthSec || 120, layer: o.layer, parts: o.parts, motif: o.motif, swing: o.swing, name: o.name },
+          '“' + o.name + '” — ' + o.parts.length + ' parts. Ctrl+Z to get your old song back');
+      } }, '✨ Make this song')));
+  setTimeout(read, 0);
+
+  const tabs = { describe: ['✍ Describe', descTab], extend: ['⟶ Extend / fill', extendTab], add: ['＋ Add parts', addTab], new: ['★ New song', newTab] };
+  const bar = h('div', { class: 'mtabs' });
+  const host = h('div');
+  const setTab = k => {
+    _composeTab = k;
+    $$('button', bar).forEach(b => b.classList.toggle('on', b.dataset.k === k));
+    host.innerHTML = '';
+    host.append(tabs[k][1]);
+  };
+  for (const k in tabs) bar.append(h('button', { 'data-k': k, onclick: () => setTab(k) }, tabs[k][0]));
+  Modal.open('✨ Compose', h('div', null, bar, shared, host), true);
+  setTab(_composeTab);
 }
 
 // ------------------------------------------------------------------ Chord progression import
@@ -134,21 +275,18 @@ function openChords() {
   const keySel = h('select', null, keyOptions(s.key));
   const scSel = h('select', null, scaleOptions(s.scale));
   const preset = h('select', null, h('option', { value: '' }, 'Common progressions…'),
-    [['I V vi IV', 'Pop: I–V–vi–IV'], ['vi IV I V', 'Sad pop: vi–IV–I–V'], ['I vi IV V', "50s: I–vi–IV–V"], ['ii V I I', 'Jazz: ii–V–I'],
+    [['I V vi IV', 'Pop: I–V–vi–IV'], ['vi IV I V', 'Sad pop: vi–IV–I–V'], ['I vi IV V', '50s: I–vi–IV–V'], ['ii V I I', 'Jazz: ii–V–I'],
       ['I IV V IV', 'Rock: I–IV–V–IV'], ['I bVII IV I', 'Mixolydian: I–bVII–IV–I'], ['i bVI bIII bVII', 'Epic: i–bVI–bIII–bVII'],
       ['i bVII bVI V', 'Andalusian: i–bVII–bVI–V'], ['i iv v i', 'Minor: i–iv–v–i'], ['i VI III VII', 'Minor anthem: i–VI–III–VII'],
       ['I iii IV iv', 'Bittersweet: I–iii–IV–iv'], ['I II IV I', 'Lydian lift: I–II–IV–I'], ['vi IV V iii', 'Heroic: vi–IV–V–iii'],
       ['I V vi iii IV I IV V', 'Canon: I–V–vi–iii–IV–I–IV–V'], ['i bII i V', 'Villain: i–bII–i–V']].map(([v, l]) => h('option', { value: v }, l)));
   preset.onchange = () => { if (preset.value) { ta.value = preset.value; upd(); } };
   const unit = h('select', null, [[1, '1 beat'], [2, '2 beats'], [4, '1 bar (4 beats)'], [8, '2 bars']].map(([v, l]) => h('option', { value: v, selected: v === s.beatsPerBar }, l)));
+  const repeat = h('select', null, [1, 2, 3, 4, 8].map(v => h('option', { value: v }, '×' + v)));
   const startBar = h('input', { type: 'number', min: 1, value: Math.floor(Transport.songPos / barTicks()) + 1, style: { width: '64px' } });
-  const mkC = h('input', { type: 'checkbox', checked: true }), mkB = h('input', { type: 'checkbox', checked: true });
-  const cStyle = h('select', null, [['block', 'Block chords'], ['arpUp', 'Arpeggio up (16ths)'], ['arpDown', 'Arpeggio down'], ['arpUpDown', 'Arpeggio up/down'], ['broken', 'Broken 1-5-3-5'], ['stabs', '8th stabs'], ['offbeat', 'Off-beat stabs'], ['pulse', 'Quarter pulses']].map(([v, l]) => h('option', { value: v }, l)));
-  const bStyle = h('select', null, [['whole', 'Whole notes'], ['quarters', 'Quarters'], ['eighths', 'Driving 8ths'], ['octave', 'Octave bounce'], ['rootFifth', 'Root–fifth'], ['walk', 'Walking']].map(([v, l]) => h('option', { value: v, selected: v === 'octave' }, l)));
-  const trackOpts = sel => [h('option', { value: 'new' }, 'New track')].concat(s.tracks.filter(t => t.inst.type !== 'drums').map(t => h('option', { value: t.id, selected: t.id === sel }, t.name)));
-  const cTrack = h('select', null, trackOpts()), bTrack = h('select', null, trackOpts());
   const setKey = h('input', { type: 'checkbox', checked: true });
   const chips = h('div', { class: 'chips' });
+  const ed = PartsEditor([Gen.part('chords', 'block'), Gen.part('bass', 'octave')], { tracks: s.tracks });
   const upd = () => {
     const r = parseProgression(ta.value, +keySel.value, scSel.value);
     chips.innerHTML = '';
@@ -179,36 +317,31 @@ function openChords() {
   const go = () => {
     const r = upd();
     if (!r.items.some(i => i.chord)) return toast('No chords to import');
+    const parts = ed.get();
+    if (!parts.length) return toast('Add at least one part to write');
     pushUndo();
     if (setKey.checked) { s.key = +keySel.value; s.scale = scSel.value; }
-    const res = Gen.chordsToTracks(s, r.items, {
-      unitBeats: +unit.value, startBar: Math.max(0, (+startBar.value || 1) - 1), makeChords: mkC.checked, makeBass: mkB.checked,
-      chordStyle: cStyle.value, bassStyle: bStyle.value, chordTrack: cTrack.value, bassTrack: bTrack.value,
-    });
+    let items = [];
+    for (let k = 0; k < +repeat.value; k++) items = items.concat(r.items);
+    const res = Gen.chordsToTracks(s, items, { unitBeats: +unit.value, startBar: Math.max(0, (+startBar.value || 1) - 1), parts, seed: Math.floor(Math.random() * 1e6) });
     Modal.close();
     if (res.patterns[0]) { App.selTrack = res.patterns[0].track; App.selPattern = res.patterns[0].id; }
     UI.syncTop();
     changed({ full: true });
     ARR.layout();
-    toast('Imported ' + r.items.length + ' chords (' + res.bars + ' bars)');
+    toast('Imported ' + items.length + ' chords into ' + parts.length + ' part(s), ' + res.bars + ' bars');
   };
 
   Modal.open('Chord progression', h('div', null,
     h('div', { class: 'frow' }, preset, h('button', { onclick: fromMidi, title: 'Detect the chords in a MIDI file' }, 'From MIDI file…')),
     ta, chips,
-    h('div', { class: 'mgrid', style: { marginTop: '10px' } },
-      h('div', { class: 'card' },
-        h('h3', null, 'Harmony'),
-        h('div', { class: 'frow' }, h('label', null, 'Key'), keySel, scSel),
-        h('div', { class: 'frow' }, h('label', null, 'Each chord lasts'), unit),
-        h('div', { class: 'frow' }, h('label', null, 'Start at bar'), startBar),
-        h('div', { class: 'frow' }, h('label', null, setKey, ' Set song key'))),
-      h('div', { class: 'card' },
-        h('h3', null, 'Parts to write'),
-        h('div', { class: 'frow' }, h('label', null, mkC, ' Chords'), cStyle, cTrack),
-        h('div', { class: 'frow' }, h('label', null, mkB, ' Bass'), bStyle, bTrack),
-        h('p', null, 'Tip: after importing, select the lead track, add a pattern over the chords and press ✨ Generate in the piano roll for a melody.'))),
-    h('div', { class: 'frow', style: { justifyContent: 'flex-end', marginTop: '12px' } }, h('button', { class: 'big', onclick: go }, 'Import chords'))), true);
+    h('div', { class: 'frow', style: { marginTop: '8px' } },
+      h('label', null, 'Key'), keySel, scSel, h('label', null, setKey, ' Set song key'),
+      h('label', null, 'Each chord'), unit, h('label', null, 'Repeat'), repeat, h('label', null, 'Start bar'), startBar),
+    h('h3', { style: { margin: '10px 0 6px', fontSize: '13px', color: 'var(--acc)' } }, 'Parts to write over these chords'),
+    ed.el,
+    h('p', { class: 'empty', style: { padding: '8px 0 0' } }, 'Pick “→ existing track” in the instrument list to write into a track you already have. Melody parts are generated over the chords; counter-melodies and echoes follow the generated lead.'),
+    h('div', { class: 'frow', style: { justifyContent: 'flex-end', marginTop: '8px' } }, h('button', { class: 'big', onclick: go }, 'Import chords'))), true);
 }
 
 // ------------------------------------------------------------------ Export

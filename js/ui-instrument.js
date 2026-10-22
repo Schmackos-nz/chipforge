@@ -1,0 +1,198 @@
+'use strict';
+// Right-hand instrument / channel settings panel.
+
+const INST = {
+  trackId: null,
+
+  render(force) {
+    const tr = getTrack(App.selTrack);
+    $('#instTrackName').textContent = tr ? '— ' + tr.name : '';
+    if (!force && tr && tr.id === this.trackId) return;
+    this.trackId = tr ? tr.id : null;
+    const root = $('#inst');
+    root.innerHTML = '';
+    if (!tr) { root.append(h('div', { class: 'empty' }, 'Add a track to edit its instrument.')); return; }
+    const I = tr.inst;
+    let undoArmed = false;
+    const start = () => { if (!undoArmed) { pushUndo(); undoArmed = true; setTimeout(() => { undoArmed = false; }, 400); } };
+    const apply = (k, v, rebuild) => {
+      I[k] = v;
+      AE.sync();
+      autosave();
+      if (k === 'mono' || k === 'type') Transport.markDirty();
+      if (rebuild) { this.render(true); UI.render({ lists: true }); }
+      if ('adsr'.includes(k) && this.envCv) this.drawEnv();
+      if (k === 'vol' || k === 'pan') MIX.syncValues();
+    };
+    const K = (k, label, min, max, o) => Knob(Object.assign({
+      label, min, max, value: I[k], def: defaultInst()[k], onStart: start, onInput: v => apply(k, v),
+    }, o || {}));
+    const sec = (title, ...kids) => h('div', { class: 'isec' }, h('h4', null, title), h('div', { class: 'body' }, ...kids));
+
+    // Preset + type
+    const presetSel = h('select', { title: 'Load a preset' }, h('option', { value: '' }, 'Load preset…'));
+    const cats = {};
+    for (const p of PRESETS) (cats[p.cat] = cats[p.cat] || []).push(p);
+    for (const c in cats) presetSel.append(h('optgroup', { label: c }, cats[c].map(p => h('option', { value: p.name }, p.name))));
+    presetSel.onchange = () => {
+      const pr = presetByName(presetSel.value);
+      if (!pr) return;
+      pushUndo();
+      applyPreset(I, pr);
+      changed({ lists: true });
+      this.render(true);
+      toast('Preset: ' + pr.name);
+    };
+    const typeSel = h('select', null, INST_TYPES.map(([v, l]) => h('option', { value: v, selected: v === I.type }, l)));
+    typeSel.onchange = () => { pushUndo(); apply('type', typeSel.value, true); };
+    const nameIn = h('input', { value: tr.name, style: { flex: 1, minWidth: 0 } });
+    nameIn.onchange = () => { pushUndo(); tr.name = nameIn.value.trim() || tr.name; changed({ lists: true }); };
+    const colorIn = h('input', { type: 'color', value: tr.color, style: { width: '34px', padding: '0 2px', height: '24px' } });
+    colorIn.oninput = () => { tr.color = colorIn.value; changed({ lists: true }); };
+
+    root.append(sec('Channel',
+      h('div', { class: 'irow' }, nameIn, colorIn),
+      h('div', { class: 'irow' }, h('label', null, 'Type'), typeSel),
+      h('div', { class: 'irow' }, presetSel),
+      h('div', { class: 'irow' }, h('button', { onclick: () => this.preview(), title: 'Play a test note' }, '▶ Test note'),
+        I.type === 'drums' ? null : h('label', { title: 'Monophonic: one note at a time (needed for glide/legato)' },
+          h('input', { type: 'checkbox', checked: I.mono, onchange: e => { pushUndo(); apply('mono', e.target.checked); } }), ' Mono / legato'))));
+
+    // Oscillator
+    const osc = [];
+    if (I.type === 'pulse') {
+      const seg = h('div', { class: 'seg dutyseg' }, [0.125, 0.25, 0.5, 0.75].map(d => h('button', {
+        class: I.duty === d ? 'on' : '', onclick: () => { pushUndo(); apply('duty', d, true); },
+      }, (d * 100) + '%')));
+      osc.push(h('div', { class: 'irow' }, h('label', null, 'Duty'), seg));
+    }
+    if (I.type === 'noise') {
+      const seg = h('div', { class: 'seg dutyseg' }, [['long', 'White (long)'], ['short', 'Metallic (short)']].map(([m, l]) => h('button', {
+        class: I.noiseMode === m ? 'on' : '', onclick: () => { pushUndo(); apply('noiseMode', m, true); },
+      }, l)));
+      osc.push(h('div', { class: 'irow' }, h('label', null, 'Mode'), seg));
+    }
+    if (I.type === 'wave') osc.push(this.waveEditor(tr, start));
+    if (I.type === 'drums') {
+      osc.push(h('div', { class: 'knobs' },
+        K('kitTune', 'Tune', -12, 12, { step: 1, fmt: x => (x > 0 ? '+' : '') + x + 'st' }),
+        K('kitDecay', 'Decay', 0.25, 3, { fmt: x => x.toFixed(2) + 'x' })));
+      osc.push(h('div', { class: 'empty', style: { padding: '6px 0 0' } }, 'Kit rows: Kick, Snare, Rim, Clap, Closed/Open Hat, 3 Toms, Crash, Cowbell. Use the piano roll — each row is one drum.'));
+    } else {
+      osc.push(h('div', { class: 'knobs' },
+        K('octave', 'Octave', -3, 3, { step: 1, fmt: x => (x > 0 ? '+' : '') + x }),
+        K('detune', 'Fine', -100, 100, { step: 1, fmt: x => Math.round(x) + 'c' })));
+    }
+    root.append(sec('Oscillator', ...osc));
+
+    if (I.type !== 'drums') {
+      this.envCv = h('canvas', { class: 'envc', height: 54 });
+      root.append(sec('Envelope (ADSR)',
+        this.envCv,
+        h('div', { class: 'knobs', style: { marginTop: '6px' } },
+          K('a', 'Attack', 0.001, 2, { log: true, fmt: fmtSec, color: '#ffcf5a' }),
+          K('d', 'Decay', 0.005, 3, { log: true, fmt: fmtSec, color: '#ffcf5a' }),
+          K('s', 'Sustain', 0, 1, { fmt: fmtPct, color: '#ffcf5a' }),
+          K('r', 'Release', 0.005, 4, { log: true, fmt: fmtSec, color: '#ffcf5a' }))));
+      requestAnimationFrame(() => this.drawEnv());
+    } else this.envCv = null;
+
+    root.append(sec('Filter',
+      h('div', { class: 'knobs' },
+        K('cutoff', 'Low-pass', 40, 20000, { log: true, fmt: fmtHz, color: '#6cc6ff' }),
+        K('reso', 'Reso', 0.1, 20, { log: true, color: '#6cc6ff' }),
+        K('hpf', 'High-pass', 10, 8000, { log: true, fmt: fmtHz, color: '#6cc6ff' }))));
+
+    if (I.type !== 'drums') {
+      const arpSel = h('select', null, Object.keys(ARP_MODES).map(k => h('option', { value: k, selected: I.arp === k }, ARP_LABELS[k])));
+      arpSel.onchange = () => { pushUndo(); apply('arp', arpSel.value, true); };
+      const custom = I.arp === 'custom' ? h('input', { value: I.arpCustom, title: 'Semitone offsets, e.g. 0 4 7 12', style: { width: '90px' },
+        onchange: e => { pushUndo(); apply('arpCustom', e.target.value); } }) : null;
+      root.append(sec('Pitch & Modulation',
+        h('div', { class: 'irow' }, h('label', null, 'Chip arp'), arpSel, custom),
+        h('div', { class: 'knobs' },
+          K('arpSpeed', 'Arp rate', 4, 60, { fmt: x => x.toFixed(0) + 'Hz', color: '#b48cff' }),
+          K('vibDepth', 'Vib depth', 0, 100, { fmt: x => Math.round(x) + 'c', color: '#b48cff' }),
+          K('vibRate', 'Vib rate', 0.5, 20, { fmt: x => x.toFixed(1) + 'Hz', color: '#b48cff' }),
+          K('vibDelay', 'Vib delay', 0, 1, { fmt: fmtSec, color: '#b48cff' }),
+          K('sweep', 'Pitch env', -36, 36, { step: 1, fmt: x => (x > 0 ? '+' : '') + x + 'st', color: '#b48cff', title: 'Start this many semitones away and slide to the note' }),
+          K('sweepTime', 'Env time', 0.01, 1, { log: true, fmt: fmtSec, color: '#b48cff' }),
+          K('glide', 'Glide', 0, 0.5, { fmt: fmtSec, color: '#b48cff', title: 'Portamento from the previous note' }))));
+    }
+
+    root.append(sec('Character',
+      h('div', { class: 'knobs' },
+        K('bits', 'Bit depth', 1, 16, { step: 1, fmt: x => (x >= 16 ? 'off' : x + '-bit'), color: '#ff7ab6' }),
+        K('drive', 'Drive', 0, 1, { fmt: fmtPct, color: '#ff7ab6' }))));
+
+    root.append(sec('Output',
+      h('div', { class: 'knobs' },
+        K('vol', 'Volume', 0, 1.2, { fmt: fmtPct }),
+        K('pan', 'Pan', -1, 1, { fmt: fmtPan }),
+        K('delay', 'Delay send', 0, 1, { fmt: fmtPct }),
+        K('reverb', 'Reverb send', 0, 1, { fmt: fmtPct }))));
+  },
+
+  preview() {
+    const tr = getTrack(App.selTrack);
+    if (!tr) return;
+    const eng = AE.ensure();
+    const p = tr.inst.type === 'drums' ? 38 : 60;
+    eng.noteOn(tr, p, 110, AE.ctx.currentTime + 0.01, 0.35, false);
+  },
+
+  drawEnv() {
+    const cv = this.envCv, tr = getTrack(App.selTrack);
+    if (!cv || !tr || !cv.isConnected) return;
+    const I = tr.inst, dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 280, H = 54;
+    cv.width = W * dpr; cv.height = H * dpr;
+    const g = cv.getContext('2d');
+    g.scale(dpr, dpr);
+    g.fillStyle = '#0b0d12'; g.fillRect(0, 0, W, H);
+    const hold = 0.25, total = I.a + I.d + hold + I.r, x = t => 4 + (t / total) * (W - 8), y = v => H - 5 - v * (H - 10);
+    g.strokeStyle = '#ffcf5a'; g.lineWidth = 2; g.beginPath();
+    g.moveTo(x(0), y(0)); g.lineTo(x(I.a), y(1)); g.lineTo(x(I.a + I.d), y(I.s)); g.lineTo(x(I.a + I.d + hold), y(I.s)); g.lineTo(x(total), y(0));
+    g.stroke();
+    g.fillStyle = 'rgba(255,207,90,.12)'; g.lineTo(x(0), y(0)); g.fill();
+  },
+
+  waveEditor(tr, start) {
+    const I = tr.inst, cv = h('canvas', { class: 'wavec', height: 96 });
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1, W = cv.clientWidth || 280, H = 96;
+      cv.width = W * dpr; cv.height = H * dpr;
+      const g = cv.getContext('2d');
+      g.scale(dpr, dpr);
+      g.fillStyle = '#0b0d12'; g.fillRect(0, 0, W, H);
+      const cw = W / 32, chh = H / 16;
+      g.strokeStyle = '#1c2029';
+      for (let i = 0; i <= 16; i++) { g.beginPath(); g.moveTo(0, i * chh); g.lineTo(W, i * chh); g.stroke(); }
+      g.fillStyle = tr.color;
+      for (let i = 0; i < 32; i++) g.fillRect(i * cw + 1, H - (I.wave[i] + 1) * chh, cw - 2, chh - 1);
+    };
+    let painting = false;
+    const paint = e => {
+      const r = cv.getBoundingClientRect();
+      const i = clamp(Math.floor((e.clientX - r.left) / r.width * 32), 0, 31);
+      const v = clamp(15 - Math.floor((e.clientY - r.top) / r.height * 16), 0, 15);
+      if (I.wave[i] !== v) { I.wave[i] = v; draw(); AE.sync(); }
+    };
+    cv.addEventListener('pointerdown', e => { start(); painting = true; cv.setPointerCapture(e.pointerId); I.wave = I.wave.slice(); paint(e); });
+    cv.addEventListener('pointermove', e => { if (painting) paint(e); });
+    cv.addEventListener('pointerup', () => { painting = false; autosave(); this.preview(); });
+    const shapes = {
+      Sine: i => Math.round(7.5 + 7.5 * Math.sin(i / 32 * Math.PI * 2)),
+      Tri: i => (i < 16 ? i : 31 - i),
+      Saw: i => Math.floor(i / 2),
+      Square: i => (i < 16 ? 15 : 0),
+      Organ: i => Math.round(7.5 + 3.5 * Math.sin(i / 32 * Math.PI * 2) + 2.5 * Math.sin(i / 16 * Math.PI * 2) + 1.5 * Math.sin(i / 8 * Math.PI * 2)),
+      Random: () => Math.floor(Math.random() * 16),
+    };
+    const btns = h('div', { class: 'irow', style: { marginTop: '6px' } }, Object.keys(shapes).map(k => h('button', {
+      style: { padding: '1px 6px', fontSize: '11px' },
+      onclick: () => { pushUndo(); I.wave = Array.from({ length: 32 }, (_, i) => clamp(shapes[k](i), 0, 15)); draw(); AE.sync(); autosave(); this.preview(); },
+    }, k)));
+    requestAnimationFrame(draw);
+    return h('div', null, h('label', { style: { color: 'var(--dim)', fontSize: '11px' } }, 'Draw the 32-step × 4-bit wave'), cv, btns);
+  },
+};

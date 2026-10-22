@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChipForge — 8-bit Music Studio</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header id="top">
+  <div class="logo">CHIP<span>FORGE</span></div>
+  <div class="grp">
+    <button data-act="new" title="New empty project">New</button>
+    <button data-act="open" title="Open project (Ctrl+O)">Open</button>
+    <button data-act="save" title="Save project (Ctrl+S)">Save</button>
+    <button data-act="importMidi" title="Import a .mid file">Import MIDI</button>
+    <button data-act="chords" class="hl" title="Import / type a chord progression">Chords</button>
+    <button data-act="export" class="hl" title="Export WAV / stems / MIDI">Export</button>
+  </div>
+  <div class="grp transport">
+    <button id="btnHome" title="Back to start (Home)">⏮</button>
+    <button id="btnPlay" class="play" title="Play / Stop (Space)">▶</button>
+    <button id="btnStop" title="Stop">■</button>
+    <button id="btnRec" class="rec" title="Record typing keyboard / MIDI into the open pattern">●</button>
+    <div class="seg" id="modeSeg" title="Play the open pattern, or the whole song">
+      <button data-mode="pattern">PAT</button><button data-mode="song">SONG</button>
+    </div>
+    <button id="btnLoop" class="tog" title="Loop region (drag in the playlist ruler to set it)">⟲ Loop</button>
+    <button id="btnMetro" class="tog" title="Metronome">♩</button>
+    <div class="lcd" id="lcd">001:1:00</div>
+  </div>
+  <div class="grp">
+    <label>BPM <input type="number" id="bpm" min="30" max="320" step="1"></label>
+    <label>Sig <select id="tsig"><option value="3">3/4</option><option value="4">4/4</option><option value="5">5/4</option><option value="6">6/4</option><option value="7">7/4</option></select></label>
+    <label title="Shuffle the off-beat 16ths">Swing <input type="range" id="swing" min="0" max="100" style="width:60px"></label>
+    <label>Key <select id="keyRoot"></select><select id="keyScale"></select></label>
+  </div>
+  <button data-act="compose" class="compose" title="Extend the song, fill gaps, or generate a new song">✨ Compose / Extend</button>
+  <div class="grp">
+    <label title="Master volume">Master <input type="range" id="masterVol" min="0" max="100" style="width:70px"></label>
+    <canvas id="scope" width="160" height="34"></canvas>
+  </div>
+  <button data-act="help" title="Shortcuts &amp; help">?</button>
+</header>
+
+<main>
+  <aside id="left">
+    <div class="phead">Channel Rack <button id="addTrack" title="Add instrument track">＋ Track</button></div>
+    <div id="trackList"></div>
+    <div class="phead"><span>Patterns <em id="patTrackName"></em></span> <button id="addPattern" title="New pattern for this track">＋</button></div>
+    <div id="patternList"></div>
+  </aside>
+
+  <section id="center">
+    <nav id="tabs">
+      <button data-view="arrange" title="F5">Playlist</button>
+      <button data-view="piano" title="F7">Piano Roll</button>
+      <button data-view="mixer" title="F9">Mixer</button>
+    </nav>
+    <div id="view-arrange" class="view">
+      <div class="toolbar" id="arrTools"></div>
+      <div class="cwrap" id="arrWrap"><canvas id="arrCanvas"></canvas><div class="scroller" id="arrScroll"><div class="spacer"></div></div></div>
+    </div>
+    <div id="view-piano" class="view">
+      <div class="toolbar" id="prTools"></div>
+      <div class="cwrap" id="prWrap"><canvas id="prCanvas"></canvas><div class="scroller" id="prScroll"><div class="spacer"></div></div></div>
+      <div class="velwrap" id="velWrap"><canvas id="velCanvas"></canvas></div>
+    </div>
+    <div id="view-mixer" class="view"><div id="mixer"></div></div>
+  </section>
+
+  <aside id="right">
+    <div class="phead"><span>Instrument <em id="instTrackName"></em></span></div>
+    <div id="inst"></div>
+  </aside>
+</main>
+
+<footer id="status">
+  <span id="statusMsg">Ready</span>
+  <span class="sp"></span>
+  <button id="btnTyping" class="tog on" title="Play notes with the computer keyboard (Z-row and Q-row)">⌨ Typing piano</button>
+  <span>Oct</span><button id="octDn">−</button><span id="octVal">4</span><button id="octUp">+</button>
+  <button id="btnMidi" title="Enable a MIDI keyboard">MIDI In</button>
+</footer>
+
+<div id="modal" class="modal hidden"><div class="mbox"><div class="mhead"><span id="mtitle"></span><button id="mclose">✕</button></div><div id="mbody"></div></div></div>
+<input type="file" id="fileInput" hidden>
+<div id="toast"></div>
+
+<script src="js/util.js"></script>
+<script src="js/theory.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/song.js"></script>
+<script src="js/generator.js"></script>
+<script src="js/midi.js"></script>
+<script src="js/transport.js"></script>
+<script src="js/export.js"></script>
+<script src="js/ui-knob.js"></script>
+<script src="js/ui-instrument.js"></script>
+<script src="js/ui-pianoroll.js"></script>
+<script src="js/ui-arrange.js"></script>
+<script src="js/ui-mixer.js"></script>
+<script src="js/ui-modals.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

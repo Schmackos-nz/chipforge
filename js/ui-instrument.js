@@ -220,7 +220,8 @@ const INST = {
 
     root.append(sec('Output',
       h('div', { class: 'knobs' },
-        K('vol', 'Volume', 0, 1.2, { fmt: fmtPct }),
+        K('vol', 'Volume', 0, 2, { fmt: fmtPct }),
+        K('boost', 'Boost', 0, 24, { fmt: fmtBoost, color: '#ff5a5a', title: 'Output overdrive: adds gain into a soft clipper — louder and grittier' }),
         K('pan', 'Pan', -1, 1, { fmt: fmtPan }),
         K('delay', 'Delay send', 0, 1, { fmt: fmtPct }),
         K('reverb', 'Reverb send', 0, 1, { fmt: fmtPct }))));

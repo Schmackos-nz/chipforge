@@ -249,7 +249,7 @@ const ARR = {
   },
   hdrDrag(mx) {
     const d = this.drag, L = this.hdr(), I = d.tr.inst;
-    if (d.k === 'vol') I.vol = +clamp((mx - L.vx) / L.vw * 1.2, 0, 1.2).toFixed(3);
+    if (d.k === 'vol') I.vol = +clamp((mx - L.vx) / L.vw * 2, 0, 2).toFixed(3);
     else { const p = clamp((mx - L.px) / L.pw * 2 - 1, -1, 1); I.pan = Math.abs(p) < 0.06 ? 0 : +p.toFixed(2); }
     this.hdrSet(d.tr, false);
   },
@@ -274,7 +274,8 @@ const ARR = {
       h('div', { class: 'hpophead', style: { borderLeftColor: tr.color } }, h('b', null, tr.name), tog('mute', 'M'), tog('solo', 'S'),
         h('button', { title: 'Close', onclick: () => close() }, '✕')),
       h('div', { class: 'knobs' },
-        K('vol', 'Volume', 0, 1.2, { fmt: v => MIX.dbText(v).replace(' dB', 'dB'), color: '#7cf28a' }),
+        K('vol', 'Volume', 0, 2, { fmt: v => MIX.dbText(v).replace(' dB', 'dB'), color: '#7cf28a' }),
+        K('boost', 'Boost', 0, 24, { fmt: fmtBoost, color: '#ff5a5a', title: 'Output overdrive: gain into a soft clipper' }),
         K('pan', 'Pan', -1, 1, { fmt: fmtPan }),
         K('delay', 'Delay', 0, 1, { fmt: fmtPct }),
         K('reverb', 'Reverb', 0, 1, { fmt: fmtPct }),
@@ -636,12 +637,13 @@ const ARR = {
       g.fillStyle = t.solo ? '#12141a' : '#9aa1b2'; g.fillText('S', L.s + 6, y + 12);
       g.fillStyle = '#9aa1b2'; g.fillText('⚙', L.mix + 4, y + 12);
       // volume bar with a live level meter underneath, then pan
-      const vy = y + 25, I = t.inst, vf = clamp(I.vol / 1.2, 0, 1);
+      const vy = y + 25, I = t.inst, vf = clamp(I.vol / 2, 0, 1);
       g.fillStyle = '#12151b'; g.fillRect(L.vx, vy, L.vw, 11);
       g.fillStyle = t.mute ? '#4a505e' : t.color; g.globalAlpha = 0.75; g.fillRect(L.vx, vy, L.vw * vf, 11); g.globalAlpha = 1;
-      g.fillStyle = '#5b6375'; g.fillRect(L.vx + L.vw * (0.7 / 1.2), vy, 1, 11);
+      g.fillStyle = '#5b6375'; g.fillRect(L.vx + L.vw * (0.7 / 2), vy, 1, 11); g.fillRect(L.vx + L.vw / 2, vy, 1, 11);
+      if (I.boost > 0.05) { g.fillStyle = '#ff5a5a'; g.fillRect(L.vx + L.vw - 3, vy, 3, 11); }
       g.fillStyle = '#e9edf5'; g.font = '9px Consolas, monospace';
-      if (L.vw > 50) g.fillText(MIX.dbText(I.vol), L.vx + 3, vy + 6);
+      if (L.vw > 50) g.fillText(MIX.dbText(I.vol) + (I.boost > 0.05 ? ' +' + Math.round(I.boost) : ''), L.vx + 3, vy + 6);
       const an = AE.engine && (AE.engine.chains.get(t.id) || {}).meter;
       let lv = (this.lv.get(t.id) || 0) * 0.88;
       if (an && Transport.playing) {

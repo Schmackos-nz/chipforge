@@ -51,4 +51,5 @@ function Knob(o) {
 const fmtHz = x => (x >= 1000 ? (x / 1000).toFixed(x >= 10000 ? 1 : 2) + 'k' : Math.round(x) + '');
 const fmtSec = x => (x < 1 ? Math.round(x * 1000) + 'ms' : x.toFixed(2) + 's');
 const fmtPct = x => Math.round(x * 100) + '%';
+const fmtBoost = x => (x > 0.05 ? '+' + x.toFixed(1) + 'dB' : 'off');
 const fmtPan = x => (Math.abs(x) < 0.02 ? 'C' : (x < 0 ? 'L' : 'R') + Math.round(Math.abs(x) * 100));

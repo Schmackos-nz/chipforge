@@ -13,7 +13,7 @@ const MIX = {
     let armed = false;
     const start = () => { if (!armed) { pushUndo(); armed = true; setTimeout(() => { armed = false; }, 400); } };
     for (const tr of s.tracks) {
-      const fader = h('input', { type: 'range', class: 'vfader', min: 0, max: 120, value: Math.round(tr.inst.vol * 100), title: 'Volume' });
+      const fader = h('input', { type: 'range', class: 'vfader', min: 0, max: 200, value: Math.round(tr.inst.vol * 100), title: 'Volume (up to 200%)' });
       fader.addEventListener('pointerdown', start);
       fader.oninput = () => { tr.inst.vol = fader.value / 100; db.textContent = this.dbText(tr.inst.vol); AE.sync(); autosave(); INST.render(true); };
       const db = h('div', { class: 'db' }, this.dbText(tr.inst.vol));
@@ -25,6 +25,7 @@ const MIX = {
       const strip = h('div', { class: 'strip' + (tr.id === App.selTrack ? ' sel' : ''), onmousedown: () => { if (App.selTrack !== tr.id) UI.selectTrack(tr.id); } },
         h('div', { class: 'snm', style: { borderTopColor: tr.color }, title: tr.name }, tr.name),
         K('pan', 'Pan', -1, 1, fmtPan),
+        Knob({ label: 'Boost', min: 0, max: 24, value: tr.inst.boost || 0, def: 0, fmt: fmtBoost, color: '#ff5a5a', title: 'Output overdrive boost', onStart: start, onInput: v => { tr.inst.boost = v; AE.sync(); autosave(); INST.render(true); } }),
         h('div', { class: 'fadr' }, fader, meter),
         db,
         h('div', { class: 'row' }, mb, sb),
@@ -37,7 +38,7 @@ const MIX = {
     // master
     const M = s.master;
     const MK = (k, label, min, max, fmt, o) => Knob(Object.assign({ label, min, max, value: M[k], fmt, onStart: start, onInput: v => { M[k] = v; AE.sync(); autosave(); } }, o || {}));
-    const mf = h('input', { type: 'range', class: 'vfader', min: 0, max: 120, value: Math.round(M.vol * 100) });
+    const mf = h('input', { type: 'range', class: 'vfader', min: 0, max: 200, value: Math.round(M.vol * 100) });
     mf.addEventListener('pointerdown', start);
     mf.oninput = () => { M.vol = mf.value / 100; mdb.textContent = this.dbText(M.vol); $('#masterVol').value = mf.value; AE.sync(); autosave(); };
     const mdb = h('div', { class: 'db' }, this.dbText(M.vol));
@@ -53,6 +54,7 @@ const MIX = {
       mdb,
       h('div', { class: 'irow', style: { width: '100%' } }, h('label', null, 'Delay'), delaySel),
       h('div', { class: 'knobs' },
+        MK('boost', 'Boost', 0, 24, fmtBoost, { color: '#ff5a5a', title: 'Master overdrive boost into a soft clipper' }),
         MK('delayFb', 'Feedback', 0, 0.9, fmtPct),
         MK('delayRet', 'Delay vol', 0, 1.5, fmtPct),
         MK('revSize', 'Rev size', 0.2, 6, x => x.toFixed(1) + 's'),

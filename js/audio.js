@@ -53,6 +53,7 @@ function defaultInst(type) {
     fType: 'off', fFreq: 1800, fQ: 2, fGain: 6, fEnv: 0, fA: 0.002, fD: 0.25, fS: 0, fKey: 0.5, fLfoRate: 3, fLfoDepth: 0,
     tremRate: 5, tremDepth: 0,
     eqLow: 0, eqMid: 0, eqMidF: 1000, eqHigh: 0,
+    boost: 0, // output overdrive boost in dB, pushed through a soft clipper
     // imported sound: id in SMP, root note, loop region (fractions of the length), one-shot ignores note length
     sample: null, sRoot: 60, sLoop: false, sLs: 0, sLe: 1, sOneShot: false, sStart: 0,
   };
@@ -165,6 +166,21 @@ function driveCurve(d) {
   for (let i = 0; i < n; i++) { const x = i / (n - 1) * 2 - 1; c[i] = (1 + k) * x / (1 + k * Math.abs(x)) / (1 + d * 0.6); }
   return c;
 }
+// Soft clipper for the output boost. The curve spans ±4 so the boost gain feeds it a quarter-scale signal.
+const SAT_RANGE = 4;
+let _satCurve = null;
+function satCurve() {
+  if (_satCurve) return _satCurve;
+  const n = 4096, c = new Float32Array(n);
+  for (let i = 0; i < n; i++) c[i] = Math.tanh((i / (n - 1) * 2 - 1) * SAT_RANGE);
+  return (_satCurve = c);
+}
+function syncBoost(eng, g, ws, db) {
+  db = clamp(db || 0, 0, 36);
+  const on = db > 0.05;
+  if (ws._on !== on) { ws._on = on; ws.curve = on ? satCurve() : null; ws.oversample = on ? '2x' : 'none'; }
+  eng.setP(g.gain, on ? Math.pow(10, db / 20) / SAT_RANGE : 1);
+}
 function makeIR(ctx, secs) {
   const len = Math.max(1, Math.floor(ctx.sampleRate * secs));
   const b = ctx.createBuffer(2, len, ctx.sampleRate);
@@ -227,7 +243,8 @@ class ChipEngine {
     m.bus = c.createGain();
     m.comp = c.createDynamicsCompressor();
     m.out = c.createGain();
-    m.bus.connect(m.comp); m.comp.connect(m.out);
+    m.boost = c.createGain(); m.sat = c.createWaveShaper();
+    m.bus.connect(m.comp); m.comp.connect(m.boost); m.boost.connect(m.sat); m.sat.connect(m.out);
     m.delayIn = c.createGain(); m.delay = c.createDelay(2); m.fb = c.createGain();
     m.dlp = c.createBiquadFilter(); m.dlp.type = 'lowpass'; m.dlp.frequency.value = 3500;
     m.delayOut = c.createGain();
@@ -242,6 +259,7 @@ class ChipEngine {
   syncMaster(song) {
     const M = song.master, m = this.m, beat = 60 / song.bpm;
     this.setP(m.out.gain, M.vol);
+    syncBoost(this, m.boost, m.sat, M.boost);
     this.setP(m.delay.delayTime, clamp(beat * M.delayBeats, 0.01, 1.99));
     this.setP(m.fb.gain, clamp(M.delayFb, 0, 0.92));
     this.setP(m.delayOut.gain, M.delayRet);
@@ -260,10 +278,11 @@ class ChipEngine {
     ch.eqL.frequency.value = 220; ch.eqH.frequency.value = 4000; ch.eqM.Q.value = 0.9;
     ch.crush = c.createWaveShaper(); ch.drv = c.createWaveShaper();
     ch.vol = c.createGain(); ch.pan = c.createStereoPanner(); ch.mute = c.createGain();
+    ch.boost = c.createGain(); ch.sat = c.createWaveShaper();
     ch.dSend = c.createGain(); ch.rSend = c.createGain();
     ch.input.connect(ch.hp); ch.hp.connect(ch.hp2); ch.hp2.connect(ch.lp); ch.lp.connect(ch.lp2);
     ch.lp2.connect(ch.eqL); ch.eqL.connect(ch.eqM); ch.eqM.connect(ch.eqH); ch.eqH.connect(ch.crush); ch.crush.connect(ch.drv);
-    ch.drv.connect(ch.vol); ch.vol.connect(ch.pan); ch.pan.connect(ch.mute); ch.mute.connect(this.m.bus);
+    ch.drv.connect(ch.vol); ch.vol.connect(ch.boost); ch.boost.connect(ch.sat); ch.sat.connect(ch.pan); ch.pan.connect(ch.mute); ch.mute.connect(this.m.bus);
     ch.mute.connect(ch.dSend); ch.dSend.connect(this.m.delayIn);
     ch.mute.connect(ch.rSend); ch.rSend.connect(this.m.revIn);
     if (this.realtime) { ch.meter = c.createAnalyser(); ch.meter.fftSize = 4096; ch.mute.connect(ch.meter); }
@@ -291,6 +310,7 @@ class ChipEngine {
     if (ch._bits !== I.bits) { ch._bits = I.bits; ch.crush.curve = I.bits >= 16 ? null : crushCurve(I.bits); }
     if (ch._drive !== I.drive) { ch._drive = I.drive; ch.drv.curve = I.drive > 0 ? driveCurve(I.drive) : null; }
     this.setP(ch.vol.gain, I.vol);
+    syncBoost(this, ch.boost, ch.sat, I.boost);
     this.setP(ch.pan.pan, clamp(I.pan, -1, 1));
     this.setP(ch.mute.gain, audible ? 1 : 0);
     this.setP(ch.dSend.gain, I.delay);

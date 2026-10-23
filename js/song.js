@@ -15,7 +15,7 @@ const App = {
 function emptySong() {
   return {
     format: 'chipforge', version: 1, name: 'Untitled', bpm: 120, beatsPerBar: 4, swing: 0, key: 0, scale: 'major',
-    master: { vol: 0.8, delayBeats: 0.75, delayFb: 0.35, delayRet: 0.8, revSize: 1.8, revRet: 0.7, comp: true },
+    master: { vol: 0.8, boost: 0, delayBeats: 0.75, delayFb: 0.35, delayRet: 0.8, revSize: 1.8, revRet: 0.7, comp: true },
     tracks: [], patterns: [], clips: [], markers: [], loop: { on: false, start: 0, end: 4 },
   };
 }

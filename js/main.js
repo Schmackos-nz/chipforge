@@ -114,7 +114,7 @@ const UI = {
     root.innerHTML = '';
     if (!s.tracks.length) { root.append(h('div', { class: 'empty' }, 'No tracks. Click “＋ Track”, import chords or MIDI, or use ✨ Compose → New song.')); return; }
     s.tracks.forEach((tr, i) => {
-      const vol = h('input', { type: 'range', min: 0, max: 120, value: Math.round(tr.inst.vol * 100), title: 'Volume' });
+      const vol = h('input', { type: 'range', min: 0, max: 200, value: Math.round(tr.inst.vol * 100), title: 'Volume' });
       vol.addEventListener('pointerdown', () => pushUndo());
       vol.oninput = () => { tr.inst.vol = vol.value / 100; AE.sync(); autosave(); };
       vol.onclick = e => e.stopPropagation();

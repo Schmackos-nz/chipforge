@@ -357,6 +357,7 @@ function boot() {
   // drop audio files anywhere to import them as sample tracks
   window.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
   window.addEventListener('drop', async e => {
+    if (e.defaultPrevented) return;
     const fs = [...((e.dataTransfer && e.dataTransfer.files) || [])].filter(f => /^audio\/|\.(wav|mp3|ogg|flac|m4a|aac|webm|aiff?)$/i.test(f.type + ' ' + f.name));
     if (!fs.length) return;
     e.preventDefault();

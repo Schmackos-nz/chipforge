@@ -18,7 +18,94 @@ const ARR = {
       if (!this.drag) this.hoverCursor(e);
     });
     this.sc.addEventListener('mouseleave', () => { this.hover = null; });
+    // drop audio files (or the waveform from the instrument panel) onto a track lane
+    const isOurs = e => e.dataTransfer && [...e.dataTransfer.types].some(t => t === 'Files' || t === 'text/x-chipforge-track');
+    this.sc.addEventListener('dragover', e => {
+      if (!isOurs(e)) return;
+      e.preventDefault();
+      const [mx, my] = this.local(e);
+      this.dropHint = { bar: Math.max(0, Math.floor(this.barAt(Math.max(mx, this.HEAD)))), row: this.rowAt(Math.max(my, this.RULER)) };
+      this.requestDraw();
+    });
+    this.sc.addEventListener('dragleave', e => { if (!this.sc.contains(e.relatedTarget)) { this.dropHint = null; this.requestDraw(); } });
+    this.sc.addEventListener('drop', e => {
+      if (!isOurs(e)) return;
+      e.preventDefault(); e.stopPropagation();
+      this.dropHint = null;
+      const [mx, my] = this.local(e);
+      this.dropAudio(e.dataTransfer, Math.max(0, Math.floor(this.barAt(Math.max(mx, this.HEAD)))), this.rowAt(Math.max(my, this.RULER)));
+    });
     this.buildToolbar();
+  },
+
+  async dropAudio(dt, bar, row) {
+    const s = App.song, own = dt.getData('text/x-chipforge-track');
+    if (own) {
+      const tr = getTrack(own), smp = tr && SMP.get(tr.inst.sample);
+      if (!smp) return;
+      pushUndo();
+      this.placeSample(tr, smp, bar);
+      return;
+    }
+    const fs = [...dt.files].filter(f => /^audio\/|\.(wav|mp3|ogg|flac|m4a|aac|webm|aiff?)$/i.test(f.type + ' ' + f.name));
+    if (!fs.length) return toast('Drop audio files (WAV, MP3, OGG, FLAC…)');
+    let undone = false;
+    for (const f of fs) {
+      let smp;
+      try { smp = await SMP.fromFile(f); } catch (e) { toast('Could not read ' + f.name, 3500); continue; }
+      if (!undone) { pushUndo(); undone = true; }
+      const target = s.tracks[row];
+      let tr;
+      if (target && target.inst.type === 'sample' && (!SMP.get(target.inst.sample) || !s.clips.some(c => c.track === target.id))) {
+        // an empty sample lane: load the sound into it
+        tr = target; tr.inst.sample = smp.id; tr.inst.sLs = 0; tr.inst.sLe = 1; tr.inst.sStart = 0;
+        if (/^(Track|Sample)/.test(tr.name)) tr.name = smp.name.slice(0, 24);
+      } else {
+        tr = addTrack(s, smp.name.slice(0, 24) || 'Sample', Object.assign(defaultInst('sample'), { sample: smp.id, a: 0.001, d: 0.1, s: 1, r: 0.05, sOneShot: true }));
+        // put the new lane right under the one it was dropped on
+        s.tracks.pop();
+        s.tracks.splice(target ? row + 1 : s.tracks.length, 0, tr);
+        row = s.tracks.indexOf(tr);
+      }
+      this.placeSample(tr, smp, bar);
+    }
+  },
+
+  // Clip that plays the whole sound once, starting at the bar. Returns the bar after it.
+  placeSample(tr, smp, bar) {
+    const s = App.song, bt = barTicks(), I = tr.inst;
+    const ticks = Math.max(1, Math.round(SMP.len(smp) / smp.rate * s.bpm / 60 * TPB));
+    let pat = s.patterns.find(p => p.track === tr.id && p.fullSample === smp.id);
+    if (!pat) {
+      pat = addPattern(s, tr.id, smp.name.slice(0, 20), Math.max(1, Math.ceil(ticks / bt)), [{ t: 0, d: ticks, p: I.sRoot || 60, v: 110 }]);
+      pat.fullSample = smp.id;
+    }
+    const c = addClip(s, tr.id, pat.id, bar);
+    App.selTrack = tr.id; App.selPattern = pat.id;
+    this.sel.clear(); this.sel.add(c);
+    changed({ full: true });
+    this.layout();
+    toast('Placed ' + smp.name + ' at bar ' + (bar + 1));
+    return bar + pat.bars;
+  },
+
+  // min/max peaks per sample, cached by version, for drawing waveforms inside clips
+  peaks(smp) {
+    const key = smp.id + ':' + smp.ver;
+    if (this._pk && this._pk.key === key) return this._pk.v;
+    this._pkc = this._pkc || new Map();
+    let v = this._pkc.get(key);
+    if (!v) {
+      const N = 1024, d = smp.ch[0], n = d.length; v = new Float32Array(N * 2);
+      for (let i = 0; i < N; i++) {
+        let lo = 0, hi = 0;
+        const a = Math.floor(i * n / N), b = Math.max(a + 1, Math.floor((i + 1) * n / N));
+        for (let j = a; j < b; j += Math.max(1, (b - a) >> 6)) { if (d[j] < lo) lo = d[j]; if (d[j] > hi) hi = d[j]; }
+        v[i * 2] = lo; v[i * 2 + 1] = hi;
+      }
+      this._pkc.set(key, v);
+    }
+    return v;
   },
   requestDraw() { this.needs = true; },
   resize() {
@@ -397,7 +484,27 @@ const ARR = {
       g.fillStyle = '#0c0e12'; g.font = 'bold 10px system-ui';
       g.save(); g.beginPath(); g.rect(x + 1, y + 2, w - 3, this.rowH - 4); g.clip();
       g.fillText(p.name, x + 4, y + 3);
-      if (p.notes.length) {
+      const smp = t.inst.type === 'sample' && SMP.get(t.inst.sample);
+      if (smp && p.notes.length) {
+        // sample lanes: draw the actual waveform for each note (stretched by its pitch, cut by its length)
+        const pk = this.peaks(smp), N = pk.length / 2, sx = this.ppb / bt, bodyY = y + 15, bodyH = this.rowH - 18, mid = bodyY + bodyH / 2;
+        const secPerTick = 60 / (s.bpm * TPB), len = SMP.len(smp) / smp.rate, I = t.inst;
+        g.fillStyle = t.color;
+        for (const n of p.notes) {
+          if (n.t >= p.bars * bt) continue;
+          const rate = Math.pow(2, (n.p + 12 * (I.octave || 0) - (I.sRoot || 60)) / 12), st = clamp(I.sStart || 0, 0, 0.99);
+          let durT = len * (1 - st) / rate / secPerTick;
+          if (!I.sOneShot || I.sLoop) durT = I.sLoop ? n.d : Math.min(durT, n.d);
+          const x0 = x + n.t * sx, wpx = Math.min(durT, p.bars * bt - n.t) * sx, amp = (n.v / 127) * bodyH / 2;
+          for (let px = 0; px < wpx; px++) {
+            let pos = st + (px / sx) * secPerTick * rate / len;
+            if (I.sLoop && pos > I.sLe) pos = I.sLs + (pos - I.sLs) % Math.max(0.001, I.sLe - I.sLs);
+            if (pos >= 1) break;
+            const k = Math.min(N - 1, Math.floor(pos * N)), lo = pk[k * 2], hi = pk[k * 2 + 1];
+            g.fillRect(x0 + px, mid - hi * amp, 1, Math.max(1, (hi - lo) * amp));
+          }
+        }
+      } else if (p.notes.length) {
         let lo = 127, hi = 0;
         for (const n of p.notes) { lo = Math.min(lo, n.p); hi = Math.max(hi, n.p); }
         const span = Math.max(6, hi - lo + 1), bodyY = y + 16, bodyH = this.rowH - 21, sx = this.ppb / bt;
@@ -411,6 +518,13 @@ const ARR = {
       g.restore();
       g.globalAlpha = 1;
       if (this.sel.has(c)) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.strokeRect(x + 1.5, y + 2.5, w - 3, this.rowH - 5); }
+    }
+    if (this.dropHint) {
+      const { bar, row } = this.dropHint, x = this.xOf(bar), y = this.yOf(Math.min(row, s.tracks.length));
+      g.save(); g.setLineDash([5, 4]); g.strokeStyle = '#7cf28a'; g.lineWidth = 1.5;
+      g.strokeRect(x + 1, y + 2, this.ppb * 2, this.rowH - 4); g.restore();
+      g.fillStyle = '#7cf28a'; g.font = 'bold 10px system-ui'; g.textBaseline = 'top';
+      g.fillText('Drop sound at bar ' + (bar + 1), x + 4, y + 4);
     }
     // marquee
     const d = this.drag;

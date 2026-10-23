@@ -469,7 +469,7 @@ function openHelp() {
     ['↑ ↓ (Shift = octave)', 'Transpose selection'], ['← →', 'Nudge selection (Shift = bar)'], ['Delete', 'Delete selection'],
     ['Ctrl+wheel / Alt+wheel', 'Zoom horizontally / row height'],
     ['B / E / D / C (typing piano off)', 'Draw / select / erase / chord tool'],
-    ['Drop audio files on the window', 'Import them as sample tracks; ✂ Edit wave… cuts, trims, fades, reverses and crushes them'], ['Mixer → Spectrum', 'Frequency view of the master or any track; hover for Hz / note'],
+    ['Drop audio files on the playlist', 'Places the sound on a new lane under the one you drop on, at that bar (an empty sample lane takes it instead). Drag a sample’s waveform from the instrument panel to place it again; ✂ Edit wave… cuts, trims, fades, reverses and crushes it'], ['Mixer → Spectrum', 'Frequency view of the master or any track; hover for Hz / note'],
     ['Playlist: click', 'Paint the selected pattern; drag to stamp copies'], ['Playlist: drag ruler', 'Set loop region (click = set position)'],
     ['Track header M / S', 'Mute / solo (Ctrl+S-click = exclusive)'],
   ];

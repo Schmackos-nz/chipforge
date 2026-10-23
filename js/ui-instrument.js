@@ -19,7 +19,8 @@ const INST = {
         toast('Loaded ' + ns.name);
       } catch (e) { toast('Could not read that audio file', 3500); }
     };
-    const cv = h('canvas', { class: 'smpthumb', height: 60, title: smp ? 'Click to edit the waveform' : 'Load a sound file', onclick: () => (smp ? openSampleEditor(tr) : load()) });
+    const cv = h('canvas', { class: 'smpthumb', height: 60, draggable: smp ? 'true' : null, title: smp ? 'Click to edit · drag onto the playlist to place it' : 'Load a sound file', onclick: () => (smp ? openSampleEditor(tr) : load()) });
+    cv.addEventListener('dragstart', e => { e.dataTransfer.setData('text/x-chipforge-track', tr.id); e.dataTransfer.effectAllowed = 'copy'; if (UI && App.view !== 'arrange' && window.innerWidth > 900) UI.setView('arrange'); });
     requestAnimationFrame(() => {
       const r = window.devicePixelRatio || 1, W = Math.round((cv.clientWidth || 280) * r), H = 60 * r;
       cv.width = W; cv.height = H;

@@ -462,7 +462,7 @@ function openAddTrack() {
 function openHelp() {
   const rows = [
     ['Space', 'Play / stop'], ['Home', 'Back to start'], ['F5 / F7 / F9', 'Playlist / Piano roll / Mixer'],
-    ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+S / Ctrl+O', 'Save / open project'],
+    ['Ctrl+Z / Ctrl+Y', 'Undo / redo'], ['Ctrl+S / Ctrl+O', 'Save / open project (everything else is in the File / Edit / Track / Tools / View menus)'],
     ['Z S X D C V … / Q 2 W 3 E …', 'Typing piano (two octaves) on the selected track'], ['PageUp / PageDown', 'Typing-piano octave'],
     ['Piano roll: click / drag', 'Draw a note, drag right for length'], ['Drag note / edge', 'Move / resize (Alt = no snap, Shift+drag = copy)'],
     ['Right-click', 'Delete notes / clips'], ['Ctrl/Shift+drag (or ⬚ Select tool)', 'Box select notes or clips; Ctrl+click toggles one'], ['Drag the piano-roll ruler', 'Select every note in that time range'], ['Esc', 'Clear selection'], ['Touch: ✋ Scroll / ✎ Edit', 'Scroll mode: drag scrolls, tap edits. Edit mode: drag moves / selects. ☰ and 🎛 open the side panels on phones'], ['Ctrl+A, C, X, V, D', 'Select all, copy, cut, paste (at the mouse), duplicate — also as toolbar buttons'],

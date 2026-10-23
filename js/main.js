@@ -184,6 +184,7 @@ const UI = {
   },
 
   syncTop() {
+    if (typeof Menu !== "undefined") Menu.syncName();
     const s = App.song;
     $('#bpm').value = s.bpm;
     $('#tsig').value = String(s.beatsPerBar);
@@ -376,7 +377,9 @@ function boot() {
     new: () => { pushUndo(); if (Transport.playing) Transport.stop(); App.song = emptySong(); const tr = addTrack(App.song, 'Lead', instFromPreset('NES Lead 25%')); addTrack(App.song, 'Bass', instFromPreset('Triangle Bass')); addTrack(App.song, 'Drums', instFromPreset('Drum Kit')); addPattern(App.song, tr.id, 'Lead 1', 4, []); App.selTrack = null; afterLoad(); UI.syncTop(); toast('New project (Ctrl+Z to undo)'); },
     open: openProject, save: saveProject, importMidi: openImportMidi, chords: openChords, export: openExport, compose: openCompose, help: openHelp,
   };
+  UI.actions = actions;
   $$('[data-act]').forEach(b => { b.onclick = () => actions[b.dataset.act](); });
+  Menu.build();
 
   PR.init();
   ARR.init();

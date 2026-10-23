@@ -286,6 +286,7 @@ const ARR = {
         K('eqHigh', 'High', -18, 18, { fmt: dB, color: '#9be36c' }),
         K('drive', 'Drive', 0, 1, { fmt: fmtPct, color: '#ff9b5a' }),
         K('bits', 'Bits', 2, 16, { step: 1, fmt: v => v + '-bit', color: '#ff9b5a' })),
+      Auto.listEl(tr.id, () => { close(); this.mixPop(tr, cx, cy); }),
       h('div', { class: 'frow', style: { justifyContent: 'space-between' } },
         h('button', { onclick: () => { close(); UI.setView('mixer'); } }, 'Open mixer'),
         h('button', { onclick: () => { close(); if (window.innerWidth <= 900) $('#btnInst').click(); } }, 'Sound settings…')));
@@ -593,6 +594,29 @@ const ARR = {
       g.restore();
       g.globalAlpha = 1;
       if (this.sel.has(c)) { g.strokeStyle = '#fff'; g.lineWidth = 1.5; g.strokeRect(x + 1.5, y + 2.5, w - 3, this.rowH - 5); }
+    }
+    // automation lanes drawn over each track
+    if (s.automation) {
+      const t0 = (sl / this.ppb) * bt, t1 = ((sl + W) / this.ppb) * bt;
+      s.tracks.forEach((t, r) => {
+        const L = s.automation[t.id];
+        if (!L) return;
+        const y = this.yOf(r);
+        if (y > H || y + this.rowH < this.RULER) return;
+        Object.keys(L).forEach((k, i) => {
+          const pts = L[k];
+          if (!pts.length) return;
+          let lo = Infinity, hi = -Infinity;
+          for (const p of pts) { lo = Math.min(lo, p[1]); hi = Math.max(hi, p[1]); }
+          const Y = v => y + 5 + (hi > lo ? 1 - (v - lo) / (hi - lo) : 0.5) * (this.rowH - 10);
+          g.strokeStyle = Auto.COLORS[i % Auto.COLORS.length]; g.globalAlpha = 0.85; g.lineWidth = 1.5;
+          g.beginPath(); g.moveTo(this.HEAD, Y(Auto.valueAt(pts, t0, k)));
+          for (const p of pts) if (p[0] > t0 && p[0] < t1) g.lineTo(this.xOf(p[0] / bt), Y(p[1]));
+          g.lineTo(W, Y(Auto.valueAt(pts, t1, k)));
+          g.stroke();
+          g.globalAlpha = 1;
+        });
+      });
     }
     if (this.dropHint) {
       const { bar, row } = this.dropHint, x = this.xOf(bar), y = this.yOf(Math.min(row, s.tracks.length));

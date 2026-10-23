@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ChipForge — 8-bit Music Studio</title>
-<link rel="stylesheet" href="css/style.css?v=8">
+<link rel="stylesheet" href="css/style.css?v=9">
 </head>
 <body>
 <header id="top">
@@ -21,7 +21,7 @@
     <button id="btnHome" title="Back to start (Home)">⏮</button>
     <button id="btnPlay" class="play" title="Play / Stop (Space)">▶</button>
     <button id="btnStop" title="Stop">■</button>
-    <button id="btnRec" class="rec" title="Record typing keyboard / MIDI into the open pattern">●</button>
+    <button id="btnRec" class="rec" title="Record: dial moves become automation (SONG mode); typing keyboard / MIDI notes go into the open pattern">●</button>
     <div class="seg" id="modeSeg" title="Play the open pattern, or the whole song">
       <button data-mode="pattern">PAT</button><button data-mode="song">SONG</button>
     </div>
@@ -93,22 +93,23 @@
 <input type="file" id="fileInput" hidden>
 <div id="toast"></div>
 
-<script src="js/util.js?v=8"></script>
-<script src="js/theory.js?v=8"></script>
-<script src="js/audio.js?v=8"></script>
-<script src="js/song.js?v=8"></script>
-<script src="js/generator.js?v=8"></script>
-<script src="js/midi.js?v=8"></script>
-<script src="js/transport.js?v=8"></script>
-<script src="js/export.js?v=8"></script>
-<script src="js/ui-knob.js?v=8"></script>
-<script src="js/ui-instrument.js?v=8"></script>
-<script src="js/ui-pianoroll.js?v=8"></script>
-<script src="js/ui-arrange.js?v=8"></script>
-<script src="js/samples.js?v=8"></script>
-<script src="js/ui-mixer.js?v=8"></script>
-<script src="js/ui-spectrum.js?v=8"></script>
-<script src="js/ui-modals.js?v=8"></script>
-<script src="js/main.js?v=8"></script>
+<script src="js/util.js?v=9"></script>
+<script src="js/theory.js?v=9"></script>
+<script src="js/audio.js?v=9"></script>
+<script src="js/song.js?v=9"></script>
+<script src="js/generator.js?v=9"></script>
+<script src="js/midi.js?v=9"></script>
+<script src="js/transport.js?v=9"></script>
+<script src="js/export.js?v=9"></script>
+<script src="js/ui-knob.js?v=9"></script>
+<script src="js/ui-instrument.js?v=9"></script>
+<script src="js/ui-pianoroll.js?v=9"></script>
+<script src="js/ui-arrange.js?v=9"></script>
+<script src="js/samples.js?v=9"></script>
+<script src="js/automation.js?v=9"></script>
+<script src="js/ui-mixer.js?v=9"></script>
+<script src="js/ui-spectrum.js?v=9"></script>
+<script src="js/ui-modals.js?v=9"></script>
+<script src="js/main.js?v=9"></script>
 </body>
 </html>

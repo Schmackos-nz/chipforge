@@ -16,7 +16,7 @@ function emptySong() {
   return {
     format: 'chipforge', version: 1, name: 'Untitled', bpm: 120, beatsPerBar: 4, swing: 0, key: 0, scale: 'major',
     master: { vol: 0.8, boost: 0, delayBeats: 0.75, delayFb: 0.35, delayRet: 0.8, revSize: 1.8, revRet: 0.7, comp: true },
-    tracks: [], patterns: [], clips: [], markers: [], loop: { on: false, start: 0, end: 4 },
+    tracks: [], patterns: [], clips: [], markers: [], loop: { on: false, start: 0, end: 4 }, automation: {},
   };
 }
 function barTicks(s) { return (s || App.song).beatsPerBar * TPB; }
@@ -94,6 +94,7 @@ function normalizeSong(s) {
   s.patterns = s.patterns.filter(p => tids.has(p.track));
   const pids = new Set(s.patterns.map(p => p.id));
   s.clips = s.clips.filter(c => pids.has(c.pattern) && tids.has(c.track));
+  if (typeof Auto !== 'undefined') Auto.prune(s);
   return s;
 }
 

@@ -112,6 +112,15 @@ aside { background: var(--panel); display: flex; flex-direction: column; min-hei
 .hpophead b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hpop .knobs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 
+/* automation list */
+.autolist { display: flex; flex-direction: column; gap: 3px; font-size: 12px; width: 100%; }
+.autolist.dim { color: var(--dim); font-size: 11px; }
+.autohd { display: flex; justify-content: space-between; align-items: center; }
+.autorow { display: flex; gap: 6px; align-items: center; }
+.autorow small { color: var(--dim); }
+.autorow button { padding: 0 6px; }
+.autolist .sw { width: 10px; height: 3px; border-radius: 2px; }
+
 /* mixer */
 #specwrap { padding: 10px 10px 0; }
 .specpanel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; height: 210px; padding: 6px; gap: 6px; }

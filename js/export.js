@@ -3,7 +3,10 @@
 
 const Exporter = (() => {
   async function render(opt) {
-    const s = App.song, spt = 60 / (s.bpm * TPB), sr = opt.sampleRate || 44100;
+    // render a copy so automation can move its settings without touching the live song
+    const s = deepClone(App.song), spt = 60 / (s.bpm * TPB), sr = opt.sampleRate || 44100;
+    const trs = new Map(s.tracks.map(t => [t.id, t])), auto = Auto.has(s);
+    if (auto) Auto.apply(s, opt.startTick);
     const len = (opt.endTick - opt.startTick) * spt;
     const tail = opt.tail == null ? 2 : opt.tail;
     const frames = Math.max(1, Math.ceil((len + tail) * sr));
@@ -13,13 +16,29 @@ const Exporter = (() => {
     if (opt.only) for (const tr of s.tracks) eng.syncTrack(tr, tr.id === opt.only);
     const evs = [];
     for (const [tid, notes] of flattenSong(s, true)) {
-      const tr = getTrack(tid);
+      const tr = trs.get(tid);
       for (const n of notes) if (n.t >= opt.startTick && n.t < opt.endTick) evs.push([n.t, tr, n]);
     }
     evs.sort((a, b) => a[0] - b[0]);
     for (const [t, tr, n] of evs) {
+      if (auto) Auto.apply(s, t); // per-note settings (envelope, filter env, vibrato…) are read when the note starts
       const sw = (t % (TPB / 2)) === TPB / 4 ? s.swing * (TPB / 4) * spt * 0.6 : 0;
       eng.noteOn(tr, n.p, n.v, (t - opt.startTick) * spt + sw, n.d * spt, false);
+    }
+    if (auto) {
+      // channel settings (volume, pan, filters, sends…) follow the automation every 1/32 note
+      let a = Infinity, b = -Infinity;
+      for (const id in s.automation) for (const k in s.automation[id]) { const p = s.automation[id][k]; if (p.length) { a = Math.min(a, p[0][0]); b = Math.max(b, p[p.length - 1][0]); } }
+      const step = TPB / 8, seen = new Set();
+      for (let t = Math.max(opt.startTick, Math.floor(a / step) * step); t <= Math.min(opt.endTick, b + step); t += step) {
+        const q = Math.round((t - opt.startTick) * spt * sr / 128);
+        if (q <= 0 || q * 128 >= frames || seen.has(q)) continue;
+        seen.add(q);
+        oc.suspend(q * 128 / sr).then(() => {
+          if (Auto.apply(s, t)) { eng.syncAll(s); if (opt.only) for (const tr of s.tracks) eng.syncTrack(tr, tr.id === opt.only); }
+          oc.resume();
+        });
+      }
     }
     const buf = await oc.startRendering();
     let chans = [buf.getChannelData(0), buf.getChannelData(1)];

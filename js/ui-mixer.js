@@ -59,7 +59,8 @@ const MIX = {
         MK('delayRet', 'Delay vol', 0, 1.5, fmtPct),
         MK('revSize', 'Rev size', 0.2, 6, x => x.toFixed(1) + 's'),
         MK('revRet', 'Rev vol', 0, 1.5, fmtPct)),
-      comp));
+      comp,
+      Auto.listEl('master', () => this.render())));
   },
   dbText(v) { return v <= 0.0001 ? '-∞ dB' : (20 * Math.log10(v)).toFixed(1) + ' dB'; },
   syncValues() { if (App.view === 'mixer') this.render(); },

@@ -342,7 +342,7 @@ function boot() {
   $('#btnPlay').onclick = () => Transport.toggle();
   $('#btnStop').onclick = () => Transport.stop();
   $('#btnHome').onclick = () => { Transport.setSongPos(0); Transport.setPatPos(0); };
-  $('#btnRec').onclick = () => { App.rec = !App.rec; UI.transportChanged(); if (App.rec) toast('Record armed: play notes while the song plays — they land in the open pattern'); };
+  $('#btnRec').onclick = () => { App.rec = !App.rec; UI.transportChanged(); if (App.rec) toast('Record armed: press Play (SONG mode) and move any dial to record automation, or play notes to record them into the open pattern', 5000); };
   $('#btnLoop').onclick = () => {
     pushUndo();
     const l = App.song.loop;
@@ -387,7 +387,9 @@ function boot() {
   UI.render({ full: true });
   setTimeout(() => PR.scrollToNotes(), 50);
 
+  Auto.init();
   const loop = () => {
+    Auto.frame();
     if (Transport.playing) { PR.requestDraw(); ARR.requestDraw(); }
     if (App.view === 'piano' && PR.needs) PR.draw();
     if (App.view === 'arrange' && ARR.needs) ARR.draw();

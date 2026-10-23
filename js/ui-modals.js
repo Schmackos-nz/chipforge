@@ -467,6 +467,7 @@ function openHelp() {
     ['Piano roll: click / drag', 'Draw a note, drag right for length'], ['Drag note / edge', 'Move / resize (Alt = no snap, Shift+drag = copy)'],
     ['Right-click', 'Delete notes / clips'], ['Ctrl/Shift+drag (or ⬚ Select tool)', 'Box select notes or clips; Ctrl+click toggles one'], ['Drag the piano-roll ruler', 'Select every note in that time range'], ['Esc', 'Clear selection'], ['Touch: ✋ Scroll / ✎ Edit', 'Scroll mode: drag scrolls, tap edits. Edit mode: drag moves / selects. ☰ and 🎛 open the side panels on phones'], ['Ctrl+A, C, X, V, D', 'Select all, copy, cut, paste (at the mouse), duplicate — also as toolbar buttons'],
     ['↑ ↓ (Shift = octave)', 'Transpose selection'], ['← →', 'Nudge selection (Shift = bar)'], ['Delete', 'Delete selection'],
+    ['● Record + Play (SONG mode)', 'Move any dial / fader / slider to record automation; release to stop writing. Replays (and exports) exactly. Lines show in the playlist; clear them in the track ⚙ or the Mixer master strip'],
     ['Ctrl+wheel / Alt+wheel', 'Zoom horizontally / row height'],
     ['Playlist track header', 'Drag the coloured bar for volume, the L–R bar for pan (double-click resets); ⚙ opens a mini mixer with sends, filters, EQ, drive and bits'],
     ['B / E / D / C (typing piano off)', 'Draw / select / erase / chord tool'],

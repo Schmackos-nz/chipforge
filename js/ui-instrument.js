@@ -4,6 +4,48 @@
 const INST = {
   trackId: null,
 
+  sampleBox(tr, apply, K) {
+    const I = tr.inst, smp = SMP.get(I.sample);
+    const load = async () => {
+      const f = await pickFile('audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.webm');
+      if (!f) return;
+      try {
+        const ns = await SMP.fromFile(f);
+        pushUndo();
+        I.sample = ns.id; I.sLs = 0; I.sLe = 1; I.sStart = 0;
+        if (/^(Track|Sample)/.test(tr.name)) tr.name = ns.name.slice(0, 24);
+        changed({ lists: true });
+        this.render(true);
+        toast('Loaded ' + ns.name);
+      } catch (e) { toast('Could not read that audio file', 3500); }
+    };
+    const cv = h('canvas', { class: 'smpthumb', height: 60, title: smp ? 'Click to edit the waveform' : 'Load a sound file', onclick: () => (smp ? openSampleEditor(tr) : load()) });
+    requestAnimationFrame(() => {
+      const r = window.devicePixelRatio || 1, W = Math.round((cv.clientWidth || 280) * r), H = 60 * r;
+      cv.width = W; cv.height = H;
+      const g = cv.getContext('2d');
+      g.fillStyle = '#0b0d12'; g.fillRect(0, 0, W, H);
+      if (!smp) { g.fillStyle = '#5b6680'; g.font = (12 * r) + 'px sans-serif'; g.textAlign = 'center'; g.fillText('No sound — click to load a file', W / 2, H / 2 + 4 * r); return; }
+      const n = SMP.len(smp);
+      if (I.sLoop) { g.fillStyle = 'rgba(255,207,90,0.12)'; g.fillRect(I.sLs * W, 0, (I.sLe - I.sLs) * W, H); }
+      drawWave(g, smp, 0, n, W, H);
+      if (I.sStart > 0) { g.fillStyle = '#6cc6ff'; g.fillRect(I.sStart * W, 0, 2 * r, H); }
+    });
+    const rootSel = h('select', { title: 'The note that plays the sound at its original pitch' },
+      Array.from({ length: 73 }, (_, i) => i + 24).map(p => h('option', { value: p, selected: p === (I.sRoot || 60) }, noteName(p))));
+    rootSel.onchange = () => { pushUndo(); apply('sRoot', +rootSel.value); };
+    const chk = (k, label, title) => h('label', { title }, h('input', { type: 'checkbox', checked: !!I[k], onchange: e => { pushUndo(); apply(k, e.target.checked, true); } }), ' ' + label);
+    return h('div', null,
+      h('div', { class: 'irow' }, h('button', { onclick: load, title: 'WAV, MP3, OGG, FLAC… (also: drop a file on the window)' }, '📂 Load sound…'),
+        smp ? h('button', { onclick: () => openSampleEditor(tr), title: 'Cut, trim, fade, reverse, crush…' }, '✂ Edit wave…') : null),
+      cv,
+      smp ? h('div', { class: 'irow dim', style: { fontSize: '11px' } }, smp.name + ' · ' + (SMP.len(smp) / smp.rate).toFixed(2) + 's') : null,
+      h('div', { class: 'irow' }, h('label', null, 'Root'), rootSel),
+      h('div', { class: 'irow' }, chk('sOneShot', 'One-shot', 'Play the whole sound however short the note is (drums, hits)'),
+        chk('sLoop', 'Loop', 'Repeat the loop region while the note is held — set it in the editor')),
+      h('div', { class: 'knobs' }, K('sStart', 'Start', 0, 0.99, { fmt: fmtPct, title: 'Skip into the sound'})));
+  },
+
   render(force) {
     const tr = getTrack(App.selTrack);
     $('#instTrackName').textContent = tr ? '— ' + tr.name : '';
@@ -73,6 +115,7 @@ const INST = {
       osc.push(h('div', { class: 'irow' }, h('label', null, 'Mode'), seg));
     }
     if (I.type === 'wave') osc.push(this.waveEditor(tr, start));
+    if (I.type === 'sample') osc.push(this.sampleBox(tr, apply, K));
     if (I.type === 'fm') {
       osc.push(h('div', { class: 'knobs' },
         K('fmRatio', 'Ratio', 0.25, 8, { step: 0.25, fmt: x => x.toFixed(2) + 'x', title: 'Modulator frequency ÷ carrier. Whole numbers = harmonic, others = bell/metal' }),

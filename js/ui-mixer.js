@@ -7,6 +7,7 @@ const MIX = {
   render() {
     const root = $('#mixer');
     root.innerHTML = '';
+    const sw = $('#specwrap'); sw.innerHTML = ''; sw.append(SPEC.panel());
     this.meters = [];
     const s = App.song;
     let armed = false;

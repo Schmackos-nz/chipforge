@@ -23,7 +23,7 @@ DRUM_KIT.forEach(d => { DRUM_NAME[d.p] = d.name; });
 const INST_TYPES = [
   ['pulse', 'Pulse / Square'], ['triangle', 'Triangle (NES)'], ['saw', 'Saw (4-bit)'], ['sine', 'Sine (4-bit)'],
   ['wave', 'Wavetable (GB)'], ['fm', 'FM 2-op (Genesis)'], ['pwm', 'PWM Pulse (C64 SID)'], ['ssaw', 'Saw (smooth)'],
-  ['ssine', 'Sine (pure)'], ['noise', 'Noise (LFSR)'], ['drums', 'Drum Kit'],
+  ['ssine', 'Sine (pure)'], ['noise', 'Noise (LFSR)'], ['drums', 'Drum Kit'], ['sample', 'Sample (imported sound)'],
 ];
 const KIT_TYPES = [['chip', 'Chip (NES)'], ['boom', 'Boom (808-ish)'], ['tight', 'Tight (Game Boy)'], ['arcade', 'Arcade (buzzy)']];
 const FILTER_TYPES = [['off', 'Off'], ['lowpass', 'Low-pass'], ['highpass', 'High-pass'], ['bandpass', 'Band-pass'], ['notch', 'Notch'], ['peaking', 'Peak'], ['lowshelf', 'Low shelf'], ['highshelf', 'High shelf']];
@@ -53,6 +53,8 @@ function defaultInst(type) {
     fType: 'off', fFreq: 1800, fQ: 2, fGain: 6, fEnv: 0, fA: 0.002, fD: 0.25, fS: 0, fKey: 0.5, fLfoRate: 3, fLfoDepth: 0,
     tremRate: 5, tremDepth: 0,
     eqLow: 0, eqMid: 0, eqMidF: 1000, eqHigh: 0,
+    // imported sound: id in SMP, root note, loop region (fractions of the length), one-shot ignores note length
+    sample: null, sRoot: 60, sLoop: false, sLs: 0, sLe: 1, sOneShot: false, sStart: 0,
   };
 }
 
@@ -204,6 +206,14 @@ class ChipEngine {
       default: return this.buf('p' + I.duty, () => pulseData(I.duty));
     }
   }
+  sampleBuf(id) {
+    const s = SMP.get(id);
+    if (!s) return null;
+    const key = 'smp:' + id + ':' + s.ver;
+    let b = this.bufs.get(key);
+    if (!b) { b = this.ctx.createBuffer(s.ch.length, s.ch[0].length, s.rate); s.ch.forEach((d, k) => b.copyToChannel(d, k)); this.bufs.set(key, b); }
+    return b;
+  }
   noiseBuf(short) { return this.buf(short ? 'nS' : 'nL', () => lfsrData(short)); }
 
   setP(param, v) {
@@ -224,7 +234,7 @@ class ChipEngine {
     m.delayIn.connect(m.delay); m.delay.connect(m.dlp); m.dlp.connect(m.fb); m.fb.connect(m.delay); m.dlp.connect(m.delayOut); m.delayOut.connect(m.bus);
     m.revIn = c.createGain(); m.conv = c.createConvolver(); m.revOut = c.createGain();
     m.revIn.connect(m.conv); m.conv.connect(m.revOut); m.revOut.connect(m.bus);
-    if (this.realtime) { m.analyser = c.createAnalyser(); m.analyser.fftSize = 2048; m.out.connect(m.analyser); }
+    if (this.realtime) { m.analyser = c.createAnalyser(); m.analyser.fftSize = 8192; m.out.connect(m.analyser); }
     m.out.connect(c.destination);
     this.m = m;
   }
@@ -256,7 +266,7 @@ class ChipEngine {
     ch.drv.connect(ch.vol); ch.vol.connect(ch.pan); ch.pan.connect(ch.mute); ch.mute.connect(this.m.bus);
     ch.mute.connect(ch.dSend); ch.dSend.connect(this.m.delayIn);
     ch.mute.connect(ch.rSend); ch.rSend.connect(this.m.revIn);
-    if (this.realtime) { ch.meter = c.createAnalyser(); ch.meter.fftSize = 512; ch.mute.connect(ch.meter); }
+    if (this.realtime) { ch.meter = c.createAnalyser(); ch.meter.fftSize = 4096; ch.mute.connect(ch.meter); }
     ch.lastPitch = null; ch.lastEnd = -1;
     return ch;
   }
@@ -323,6 +333,18 @@ class ChipEngine {
         nodes.push(car, mod); params.push(car.detune, mod.detune); offs.push(off, off);
         continue;
       }
+      if (I.type === 'sample') {
+        const sb = this.sampleBuf(I.sample);
+        if (!sb) break;
+        const src = c.createBufferSource();
+        src.buffer = sb;
+        src.playbackRate.value = f / mtof(I.sRoot || 60);
+        if (I.sLoop) { src.loop = true; src.loopStart = clamp(I.sLs, 0, 1) * sb.duration; src.loopEnd = Math.max(src.loopStart + 0.002, clamp(I.sLe, 0, 1) * sb.duration); }
+        src.connect(out);
+        src.startOffset = clamp(I.sStart || 0, 0, 0.99) * sb.duration;
+        nodes.push(src); params.push(src.detune); offs.push(off);
+        continue;
+      }
       const src = c.createBufferSource();
       src.loop = true;
       if (I.type === 'noise') {
@@ -364,6 +386,11 @@ class ChipEngine {
     if (I.type === 'drums') { this.drum(ch, I, pitch, vel, t, register); return null; }
     const p = pitch + 12 * (I.octave || 0);
     const osc = this.makeOsc(I, mtof(p), t), nodes = osc.nodes;
+    if (I.type === 'sample' && I.sOneShot && !I.sLoop) {
+      // one-shot: play the whole sound whatever the note length
+      const sb = this.sampleBuf(I.sample);
+      if (sb) dur = sb.duration * (1 - clamp(I.sStart || 0, 0, 0.99)) / (mtof(p) / mtof(I.sRoot || 60));
+    }
     const A = Math.max(0.001, I.a), D = Math.max(0.002, I.d), S = clamp(I.s, 0, 1), R = Math.max(0.004, I.r);
     const base = I.detune || 0, det = osc.det;
     const relEnd = dur == null ? t + 8 : t + dur;
@@ -432,7 +459,7 @@ class ChipEngine {
       gp.linearRampToValueAtTime(0, e + R);
     }
     post.connect(g); g.connect(ch.input);
-    for (const n of nodes) n.start(t);
+    for (const n of nodes) n.start(t, n.startOffset || 0);
     const stopAll = end => { for (const n of nodes) n.stop(end); };
     if (dur != null) {
       const end = t + dur + R + 0.03;

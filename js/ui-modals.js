@@ -454,7 +454,8 @@ function openAddTrack() {
       toast('Added ' + tr.name);
     },
   }, p.name, h('small', null, p.cat + ' · ' + (INST_TYPES.find(x => x[0] === p.p.type) || ['', ''])[1]))));
-  Modal.open('Add instrument track', grid, true);
+  const imp = h('button', { class: 'big', onclick: async () => { const f = await pickFile('audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.webm'); if (f) { Modal.close(); SMP.importAsTrack(f); } } }, '📂 Import a sound file (WAV, MP3, OGG…)');
+  Modal.open('Add instrument track', h('div', null, h('div', { class: 'frow', style: { marginBottom: '10px' } }, imp, h('span', { class: 'dim' }, 'or drop audio files anywhere on the window')), grid), true);
 }
 
 // ------------------------------------------------------------------ Help
@@ -468,6 +469,7 @@ function openHelp() {
     ['↑ ↓ (Shift = octave)', 'Transpose selection'], ['← →', 'Nudge selection (Shift = bar)'], ['Delete', 'Delete selection'],
     ['Ctrl+wheel / Alt+wheel', 'Zoom horizontally / row height'],
     ['B / E / D / C (typing piano off)', 'Draw / select / erase / chord tool'],
+    ['Drop audio files on the window', 'Import them as sample tracks; ✂ Edit wave… cuts, trims, fades, reverses and crushes them'], ['Mixer → Spectrum', 'Frequency view of the master or any track; hover for Hz / note'],
     ['Playlist: click', 'Paint the selected pattern; drag to stamp copies'], ['Playlist: drag ruler', 'Set loop region (click = set position)'],
     ['Track header M / S', 'Mute / solo (Ctrl+S-click = exclusive)'],
   ];
@@ -479,7 +481,8 @@ function openHelp() {
 // ------------------------------------------------------------------ project files
 function saveProject() {
   const s = App.song;
-  download(new Blob([JSON.stringify(s)], { type: 'application/json' }), safeName(s.name) + '.chipforge.json');
+  const smp = SMP.embed(s);
+  download(new Blob([JSON.stringify(Object.keys(smp).length ? Object.assign({}, s, { sampleData: smp }) : s)], { type: 'application/json' }), safeName(s.name) + '.chipforge.json');
   toast('Project saved');
 }
 async function openProject() {
@@ -490,6 +493,8 @@ async function openProject() {
     if (!s || !Array.isArray(s.tracks) || !Array.isArray(s.patterns)) throw new Error('not a ChipForge project');
     pushUndo();
     if (Transport.playing) Transport.stop();
+    SMP.unembed(s.sampleData);
+    delete s.sampleData;
     App.song = s;
     App.selTrack = null;
     afterLoad();

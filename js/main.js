@@ -353,6 +353,16 @@ function boot() {
   $('#btnMetro').onclick = () => { App.metronome = !App.metronome; UI.transportChanged(); };
   $$('#modeSeg button').forEach(b => { b.onclick = () => Transport.setMode(b.dataset.mode); });
   $$('#tabs button').forEach(b => { b.onclick = () => UI.setView(b.dataset.view); });
+  $('#spec').onclick = () => UI.setView('mixer');
+  // drop audio files anywhere to import them as sample tracks
+  window.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+  window.addEventListener('drop', async e => {
+    const fs = [...((e.dataTransfer && e.dataTransfer.files) || [])].filter(f => /^audio\/|\.(wav|mp3|ogg|flac|m4a|aac|webm|aiff?)$/i.test(f.type + ' ' + f.name));
+    if (!fs.length) return;
+    e.preventDefault();
+    for (const f of fs) await SMP.importAsTrack(f);
+  });
+  SMP.loadAll().then(() => { SMP.gc(); INST.render(true); AE.sync(); });
   $('#addTrack').onclick = openAddTrack;
   $('#addPattern').onclick = () => UI.newPattern();
   $('#btnTyping').onclick = () => { App.typingPiano = !App.typingPiano; $('#btnTyping').classList.toggle('on', App.typingPiano); toast(App.typingPiano ? 'Typing piano on' : 'Typing piano off — letter keys are tool shortcuts'); };
@@ -382,6 +392,7 @@ function boot() {
     if (App.view === 'arrange' && ARR.needs) ARR.draw();
     UI.updateLcd();
     UI.drawScope();
+    SPEC.tick();
     MIX.tick();
     requestAnimationFrame(loop);
   };

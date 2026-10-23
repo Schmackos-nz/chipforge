@@ -43,7 +43,7 @@ em { font-style: normal; color: var(--text); text-transform: none; letter-spacin
 .seg button:last-child { border-radius: 0 4px 4px 0; margin-left: -1px; }
 .compose { background: linear-gradient(135deg, #3c2453, #20384b); border-color: #8d6bd6; font-weight: 600; }
 .compose:hover { background: linear-gradient(135deg, #4b2d66, #29475e); }
-#scope { background: #0b0d12; border: 1px solid var(--line); border-radius: 4px; }
+#scope, #spec { background: #0b0d12; border: 1px solid var(--line); border-radius: 4px; }
 
 /* layout */
 main { display: grid; grid-template-columns: 236px 1fr 318px; min-height: 0; }
@@ -96,7 +96,23 @@ aside { background: var(--panel); display: flex; flex-direction: column; min-hei
 .velwrap { height: 78px; position: relative; border-top: 2px solid var(--line); background: #101217; }
 .velwrap canvas { position: absolute; left: 0; top: 0; }
 
+/* sample editor */
+.smpthumb { width: 100%; height: 60px; cursor: pointer; border-radius: 4px; display: block; margin: 4px 0; }
+.smped { display: flex; flex-direction: column; gap: 8px; }
+.smped .dim { color: var(--dim); font-size: 11px; margin-left: auto; }
+.smpcv { width: 100%; height: 220px; background: #0b0d12; border-radius: 4px; cursor: text; touch-action: none; display: block; }
+.smpov { width: 100%; height: 36px; border-radius: 4px; cursor: pointer; touch-action: none; display: block; }
+.smptools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.smptools label { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+@media (max-width: 900px) { .smpcv { height: 160px; } .smped .dim { display: none; } }
+
 /* mixer */
+#specwrap { padding: 10px 10px 0; }
+.specpanel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; height: 210px; padding: 6px; gap: 6px; }
+.spechead { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
+.spechead .dim { color: var(--dim); margin-left: auto; }
+.speccv { flex: 1; width: 100%; min-height: 0; border-radius: 4px; cursor: crosshair; display: block; }
+#spec { cursor: pointer; }
 #mixer { display: flex; gap: 6px; padding: 10px; overflow: auto; flex: 1; align-items: stretch; }
 .strip { width: 92px; flex: 0 0 92px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px; }
 .strip.sel { border-color: var(--acc); }
@@ -212,7 +228,9 @@ body.touchedit .scroller, .velwrap canvas, .dial, .wavec { touch-action: none; }
   #top > * { flex: 0 0 auto; }
   .logo { font-size: 15px; order: -2; }
   #top .transport { order: -1; }
-  #scope { display: none; }
+  #scope, #spec { display: none; }
+  .specpanel { height: 150px; }
+  .spechead .dim { display: none; }
   .toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
   .toolbar > * { flex: 0 0 auto; }
   .arrhint { display: none; }

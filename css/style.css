@@ -106,6 +106,12 @@ aside { background: var(--panel); display: flex; flex-direction: column; min-hei
 .smptools label { display: flex; align-items: center; gap: 4px; font-size: 12px; }
 @media (max-width: 900px) { .smpcv { height: 160px; } .smped .dim { display: none; } }
 
+/* per-track mini mixer popover (playlist gear) */
+.hpop { position: fixed; z-index: 60; width: 286px; max-width: calc(100vw - 8px); background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.5); display: flex; flex-direction: column; gap: 8px; }
+.hpophead { display: flex; gap: 4px; align-items: center; border-left: 4px solid; padding-left: 6px; }
+.hpophead b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hpop .knobs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+
 /* mixer */
 #specwrap { padding: 10px 10px 0; }
 .specpanel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; height: 210px; padding: 6px; gap: 6px; }

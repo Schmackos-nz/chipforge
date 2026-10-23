@@ -247,7 +247,7 @@ function initMobile() {
   };
   // Bigger rows for fingers, narrower headers for phones.
   if (coarse.matches) { PR.rowH = 20; ARR.rowH = 52; }
-  if (narrow.matches) { PR.KEYW = 52; ARR.HEAD = 120; }
+  if (narrow.matches) { PR.KEYW = 52; ARR.HEAD = 128; }
 }
 
 // ------------------------------------------------------------------ keyboard

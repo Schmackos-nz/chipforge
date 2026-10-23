@@ -2,7 +2,7 @@
 // Playlist / arrangement: tracks × bars, clips are pattern instances.
 
 const ARR = {
-  ppb: 54, rowH: 44, HEAD: 168, RULER: 30,
+  ppb: 54, rowH: 44, HEAD: 210, RULER: 30, lv: new Map(),
   sel: new Set(), drag: null, needs: true, follow: true, tool: 'paint', hover: null,
 
   init() {
@@ -151,7 +151,10 @@ const ARR = {
       const tr = App.song.tracks[this.rowAt(my)];
       cur = tr && this.clipAt(tr.id, this.barAt(mx)) ? 'move' : this.tool === 'select' || e.ctrlKey || e.shiftKey ? 'crosshair' : tr ? 'copy' : 'default';
     }
-    else cur = 'pointer';
+    else {
+      const L = this.hdr(), ry = my - this.yOf(this.rowAt(my));
+      cur = ry > 22 && ((mx >= L.vx && mx < L.vx + L.vw) || (mx >= L.px && mx < L.px + L.pw)) ? 'ew-resize' : 'pointer';
+    }
     this.sc.style.cursor = cur;
   },
   capture() { dragCapture(this); },
@@ -172,13 +175,22 @@ const ARR = {
     const row = this.rowAt(my), tr = s.tracks[row];
     if (mx < this.HEAD) {
       if (!tr) return;
-      const ry = my - this.yOf(row);
-      const bx = this.HEAD - 50;
-      if (ry > 22 && ry < 40 && mx >= bx && mx < bx + 20) { pushUndo(); tr.mute = !tr.mute; changed({ lists: true }); return; }
-      if (ry > 22 && ry < 40 && mx >= bx + 23 && mx < bx + 43) {
+      const ry = my - this.yOf(row), L = this.hdr(), inX = (a, w) => mx >= a && mx < a + w;
+      if (ry < 21 && inX(L.m, 18)) { pushUndo(); tr.mute = !tr.mute; changed({ lists: true }); return; }
+      if (ry < 21 && inX(L.s, 18)) {
         pushUndo();
         if (e.ctrlKey) { const only = !tr.solo; s.tracks.forEach(t => { t.solo = false; }); tr.solo = only; } else tr.solo = !tr.solo;
         changed({ lists: true }); return;
+      }
+      if (ry < 21 && inX(L.mix, 18)) { UI.selectTrack(tr.id); this.mixPop(tr, e.clientX, e.clientY); return; }
+      if (ry > 22 && (inX(L.vx, L.vw) || inX(L.px, L.pw))) {
+        const k = inX(L.vx, L.vw) ? 'vol' : 'pan';
+        pushUndo();
+        if (e.dbl) { tr.inst[k] = defaultInst()[k]; this.hdrSet(tr, true); return; }
+        this.drag = { type: 'hdr', k, tr };
+        this.hdrDrag(mx);
+        this.capture();
+        return;
       }
       UI.selectTrack(tr.id);
       if (e.dbl) UI.renameTrack(tr.id);
@@ -230,10 +242,71 @@ const ARR = {
     this.capture();
     changed({ lists: true });
   },
+  // playlist track header layout (scales with HEAD so phones get a narrower one)
+  hdr() {
+    const H = this.HEAD, pw = H < 160 ? 30 : 46;
+    return { m: H - 66, s: H - 46, mix: H - 26, px: H - pw - 8, pw, vx: 10, vw: H - pw - 26 };
+  },
+  hdrDrag(mx) {
+    const d = this.drag, L = this.hdr(), I = d.tr.inst;
+    if (d.k === 'vol') I.vol = +clamp((mx - L.vx) / L.vw * 1.2, 0, 1.2).toFixed(3);
+    else { const p = clamp((mx - L.px) / L.pw * 2 - 1, -1, 1); I.pan = Math.abs(p) < 0.06 ? 0 : +p.toFixed(2); }
+    this.hdrSet(d.tr, false);
+  },
+  hdrSet(tr, done) {
+    AE.sync(); autosave(); this.requestDraw();
+    setStatus(tr.name + ' · volume ' + MIX.dbText(tr.inst.vol) + ' · pan ' + fmtPan(tr.inst.pan));
+    if (done) { UI.render({ lists: true }); INST.render(true); MIX.syncValues(); }
+  },
+
+  // small mixer for one track, opened from the gear in its playlist header
+  mixPop(tr, cx, cy) {
+    const old = $('.hpop');
+    if (old) { old.remove(); if (old.dataset.tid === tr.id) return; }
+    const I = tr.inst;
+    let armed = false;
+    const start = () => { if (!armed) { pushUndo(); armed = true; setTimeout(() => { armed = false; }, 400); } };
+    const K = (k, label, min, max, o) => Knob(Object.assign({ label, min, max, value: I[k], def: defaultInst()[k], onStart: start,
+      onInput: v => { I[k] = v; AE.sync(); autosave(); this.requestDraw(); } }, o || {}));
+    const tog = (k, label) => h('button', { class: 'tog' + (tr[k] ? ' on' : ''), onclick: e => { pushUndo(); tr[k] = !tr[k]; e.target.classList.toggle('on', tr[k]); changed({ lists: true }); } }, label);
+    const dB = v => v.toFixed(1) + 'dB';
+    const pop = h('div', { class: 'hpop' },
+      h('div', { class: 'hpophead', style: { borderLeftColor: tr.color } }, h('b', null, tr.name), tog('mute', 'M'), tog('solo', 'S'),
+        h('button', { title: 'Close', onclick: () => close() }, '✕')),
+      h('div', { class: 'knobs' },
+        K('vol', 'Volume', 0, 1.2, { fmt: v => MIX.dbText(v).replace(' dB', 'dB'), color: '#7cf28a' }),
+        K('pan', 'Pan', -1, 1, { fmt: fmtPan }),
+        K('delay', 'Delay', 0, 1, { fmt: fmtPct }),
+        K('reverb', 'Reverb', 0, 1, { fmt: fmtPct }),
+        K('cutoff', 'Low-pass', 40, 20000, { log: true, fmt: fmtHz, color: '#6cc6ff' }),
+        K('hpf', 'High-pass', 10, 8000, { log: true, fmt: fmtHz, color: '#6cc6ff' }),
+        K('eqLow', 'Low', -18, 18, { fmt: dB, color: '#9be36c' }),
+        K('eqMid', 'Mid', -18, 18, { fmt: dB, color: '#9be36c' }),
+        K('eqHigh', 'High', -18, 18, { fmt: dB, color: '#9be36c' }),
+        K('drive', 'Drive', 0, 1, { fmt: fmtPct, color: '#ff9b5a' }),
+        K('bits', 'Bits', 2, 16, { step: 1, fmt: v => v + '-bit', color: '#ff9b5a' })),
+      h('div', { class: 'frow', style: { justifyContent: 'space-between' } },
+        h('button', { onclick: () => { close(); UI.setView('mixer'); } }, 'Open mixer'),
+        h('button', { onclick: () => { close(); if (window.innerWidth <= 900) $('#btnInst').click(); } }, 'Sound settings…')));
+    pop.dataset.tid = tr.id;
+    document.body.append(pop);
+    const w = pop.offsetWidth, hh = pop.offsetHeight;
+    pop.style.left = clamp(cx + 8, 4, window.innerWidth - w - 4) + 'px';
+    pop.style.top = clamp(cy - 20, 4, window.innerHeight - hh - 4) + 'px';
+    const outside = e => { if (!pop.contains(e.target)) close(); };
+    const esc = e => { if (e.key === 'Escape') close(); };
+    const close = () => {
+      pop.remove(); window.removeEventListener('pointerdown', outside, true); window.removeEventListener('keydown', esc, true);
+      UI.render({ lists: true }); INST.render(true); MIX.syncValues();
+    };
+    setTimeout(() => { window.addEventListener('pointerdown', outside, true); window.addEventListener('keydown', esc, true); });
+  },
+
   move(e) {
     const d = this.drag;
     if (!d) return;
     const [mx, my] = this.local(e);
+    if (d.type === 'hdr') { this.hdrDrag(mx); return; }
     const barF = Math.max(0, this.barAt(mx));
     if (d.type === 'ruler') { d.b1 = Math.max(0, Math.floor(barF)); this.requestDraw(); return; }
     if (d.type === 'erase') { this.eraseAt(mx, my); return; }
@@ -280,6 +353,7 @@ const ARR = {
     const d = this.drag;
     this.drag = null;
     if (!d) return;
+    if (d.type === 'hdr') { this.hdrSet(d.tr, true); return; }
     if (d.type === 'marquee' && d.toggle && !d.moved) { if (this.sel.has(d.toggle)) this.sel.delete(d.toggle); else this.sel.add(d.toggle); }
     if (d.type === 'ruler') {
       if (d.b0 === d.b1) Transport.setSongPos(d.b0 * barTicks());
@@ -550,17 +624,42 @@ const ARR = {
       g.fillStyle = t.id === App.selTrack ? '#262c38' : '#1d2028';
       g.fillRect(0, y, this.HEAD - 1, this.rowH - 1);
       g.fillStyle = t.color; g.fillRect(0, y, 4, this.rowH - 1);
+      const L = this.hdr();
       g.fillStyle = t.mute ? '#6a7080' : '#d9dde7'; g.font = 'bold 12px system-ui';
-      const maxC = Math.max(6, Math.floor((this.HEAD - 16) / 8));
-      g.fillText(t.name.length > maxC ? t.name.slice(0, maxC - 1) + '…' : t.name, 10, y + 13);
-      g.fillStyle = '#7f8696'; g.font = '10px system-ui';
-      const tl = (INST_TYPES.find(x => x[0] === t.inst.type) || ['', ''])[1], tc = Math.floor((this.HEAD - 64) / 5.5);
-      g.fillText(tl.length > tc ? tl.slice(0, tc - 1) + '…' : tl, 10, y + 31);
-      const bx = this.HEAD - 50;
-      g.fillStyle = t.mute ? '#ff6060' : '#2a2f3a'; g.fillRect(bx, y + 23, 20, 16);
-      g.fillStyle = t.solo ? '#ffcf5a' : '#2a2f3a'; g.fillRect(bx + 23, y + 23, 20, 16);
-      g.fillStyle = t.mute ? '#12141a' : '#9aa1b2'; g.font = 'bold 10px system-ui'; g.fillText('M', bx + 6, y + 31.5);
-      g.fillStyle = t.solo ? '#12141a' : '#9aa1b2'; g.fillText('S', bx + 30, y + 31.5);
+      const maxC = Math.max(5, Math.floor((L.m - 14) / 7.5));
+      g.fillText(t.name.length > maxC ? t.name.slice(0, maxC - 1) + '…' : t.name, 10, y + 12);
+      g.fillStyle = t.mute ? '#ff6060' : '#2a2f3a'; g.fillRect(L.m, y + 4, 18, 15);
+      g.fillStyle = t.solo ? '#ffcf5a' : '#2a2f3a'; g.fillRect(L.s, y + 4, 18, 15);
+      g.fillStyle = '#2a2f3a'; g.fillRect(L.mix, y + 4, 18, 15);
+      g.font = 'bold 10px system-ui';
+      g.fillStyle = t.mute ? '#12141a' : '#9aa1b2'; g.fillText('M', L.m + 5, y + 12);
+      g.fillStyle = t.solo ? '#12141a' : '#9aa1b2'; g.fillText('S', L.s + 6, y + 12);
+      g.fillStyle = '#9aa1b2'; g.fillText('⚙', L.mix + 4, y + 12);
+      // volume bar with a live level meter underneath, then pan
+      const vy = y + 25, I = t.inst, vf = clamp(I.vol / 1.2, 0, 1);
+      g.fillStyle = '#12151b'; g.fillRect(L.vx, vy, L.vw, 11);
+      g.fillStyle = t.mute ? '#4a505e' : t.color; g.globalAlpha = 0.75; g.fillRect(L.vx, vy, L.vw * vf, 11); g.globalAlpha = 1;
+      g.fillStyle = '#5b6375'; g.fillRect(L.vx + L.vw * (0.7 / 1.2), vy, 1, 11);
+      g.fillStyle = '#e9edf5'; g.font = '9px Consolas, monospace';
+      if (L.vw > 50) g.fillText(MIX.dbText(I.vol), L.vx + 3, vy + 6);
+      const an = AE.engine && (AE.engine.chains.get(t.id) || {}).meter;
+      let lv = (this.lv.get(t.id) || 0) * 0.88;
+      if (an && Transport.playing) {
+        const b = this._mb && this._mb.length === an.fftSize ? this._mb : (this._mb = new Float32Array(an.fftSize));
+        an.getFloatTimeDomainData(b);
+        for (let i = 0; i < b.length; i += 4) { const a = Math.abs(b[i]); if (a > lv) lv = a; }
+      }
+      this.lv.set(t.id, lv);
+      if (lv > 0.002) {
+        const f = clamp((20 * Math.log10(lv) + 48) / 54, 0, 1);
+        g.fillStyle = f > 0.9 ? '#ff5050' : f > 0.7 ? '#d8e04a' : '#3fbf5a'; g.fillRect(L.vx, vy + 13, L.vw * f, 3);
+        if (!Transport.playing) this.requestDraw(); // let the meter fall after stopping
+      }
+      g.fillStyle = '#12151b'; g.fillRect(L.px, vy, L.pw, 11);
+      const pc = L.px + L.pw / 2, pp = pc + I.pan * L.pw / 2;
+      g.fillStyle = '#3a4152'; g.fillRect(pc, vy, 1, 11);
+      g.fillStyle = '#6cc6ff'; g.fillRect(Math.min(pc, pp), vy + 2, Math.max(2, Math.abs(pp - pc)), 7);
+      g.fillStyle = '#7f8696'; g.font = '8px system-ui'; g.fillText('L', L.px + 2, vy + 6); g.fillText('R', L.px + L.pw - 7, vy + 6);
     });
     if (!s.tracks.length) { g.fillStyle = '#8a91a3'; g.font = '13px system-ui'; g.fillText('No tracks — use “＋ Track”.', this.HEAD + 20, this.RULER + 30); }
     g.fillStyle = '#333845'; g.fillRect(this.HEAD - 1, this.RULER, 1, H);

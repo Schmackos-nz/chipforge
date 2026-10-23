@@ -60,7 +60,7 @@ const INST = {
 
     // Oscillator
     const osc = [];
-    if (I.type === 'pulse') {
+    if (I.type === 'pulse' || I.type === 'pwm') {
       const seg = h('div', { class: 'seg dutyseg' }, [0.125, 0.25, 0.5, 0.75].map(d => h('button', {
         class: I.duty === d ? 'on' : '', onclick: () => { pushUndo(); apply('duty', d, true); },
       }, (d * 100) + '%')));
@@ -73,7 +73,22 @@ const INST = {
       osc.push(h('div', { class: 'irow' }, h('label', null, 'Mode'), seg));
     }
     if (I.type === 'wave') osc.push(this.waveEditor(tr, start));
+    if (I.type === 'fm') {
+      osc.push(h('div', { class: 'knobs' },
+        K('fmRatio', 'Ratio', 0.25, 8, { step: 0.25, fmt: x => x.toFixed(2) + 'x', title: 'Modulator frequency ÷ carrier. Whole numbers = harmonic, others = bell/metal' }),
+        K('fmIndex', 'Index', 0, 10, { fmt: x => x.toFixed(1), title: 'How much the modulator bends the tone (brightness)' }),
+        K('fmDecay', 'Idx decay', 0.01, 3, { log: true, fmt: fmtSec, title: 'How fast the brightness falls' }),
+        K('fmSus', 'Idx sustain', 0, 1, { fmt: fmtPct, title: 'Brightness held after the decay' })));
+    }
+    if (I.type === 'pwm') {
+      osc.push(h('div', { class: 'knobs' },
+        K('pwmRate', 'PWM rate', 0.05, 15, { log: true, fmt: x => x.toFixed(2) + 'Hz' }),
+        K('pwmDepth', 'PWM depth', 0, 1, { fmt: fmtPct })));
+    }
     if (I.type === 'drums') {
+      const kitSel = h('select', null, KIT_TYPES.map(([v, l]) => h('option', { value: v, selected: (I.kit || 'chip') === v }, l)));
+      kitSel.onchange = () => { pushUndo(); apply('kit', kitSel.value); this.preview(); };
+      osc.push(h('div', { class: 'irow' }, h('label', null, 'Kit'), kitSel));
       osc.push(h('div', { class: 'knobs' },
         K('kitTune', 'Tune', -12, 12, { step: 1, fmt: x => (x > 0 ? '+' : '') + x + 'st' }),
         K('kitDecay', 'Decay', 0.25, 3, { fmt: x => x.toFixed(2) + 'x' })));
@@ -81,7 +96,9 @@ const INST = {
     } else {
       osc.push(h('div', { class: 'knobs' },
         K('octave', 'Octave', -3, 3, { step: 1, fmt: x => (x > 0 ? '+' : '') + x }),
-        K('detune', 'Fine', -100, 100, { step: 1, fmt: x => Math.round(x) + 'c' })));
+        K('detune', 'Fine', -100, 100, { step: 1, fmt: x => Math.round(x) + 'c' }),
+        I.type === 'noise' ? null : K('unison', 'Unison', 1, 7, { step: 1, fmt: x => x + (x > 1 ? ' voices' : ' voice'), title: 'Stack detuned copies for a fatter sound' }),
+        I.type === 'noise' ? null : K('uniSpread', 'Spread', 0, 50, { fmt: x => Math.round(x) + 'c', title: 'Detune between unison voices' })));
     }
     root.append(sec('Oscillator', ...osc));
 
@@ -97,11 +114,41 @@ const INST = {
       requestAnimationFrame(() => this.drawEnv());
     } else this.envCv = null;
 
-    root.append(sec('Filter',
+    const slopeSeg = h('div', { class: 'seg dutyseg' }, [12, 24].map(sl => h('button', {
+      class: (I.slope >= 24 ? 24 : 12) === sl ? 'on' : '', onclick: () => { pushUndo(); apply('slope', sl, true); },
+    }, sl + ' dB/oct')));
+    root.append(sec('Pass filters',
+      h('div', { class: 'irow' }, h('label', null, 'Slope'), slopeSeg),
       h('div', { class: 'knobs' },
         K('cutoff', 'Low-pass', 40, 20000, { log: true, fmt: fmtHz, color: '#6cc6ff' }),
         K('reso', 'Reso', 0.1, 20, { log: true, color: '#6cc6ff' }),
         K('hpf', 'High-pass', 10, 8000, { log: true, fmt: fmtHz, color: '#6cc6ff' }))));
+
+    if (I.type !== 'drums') {
+      const fSel = h('select', null, FILTER_TYPES.map(([v, l]) => h('option', { value: v, selected: (I.fType || 'off') === v }, l)));
+      fSel.onchange = () => { pushUndo(); apply('fType', fSel.value, true); };
+      const on = I.fType && I.fType !== 'off', gainy = ['peaking', 'lowshelf', 'highshelf'].includes(I.fType);
+      root.append(sec('Filter envelope (per note)',
+        h('div', { class: 'irow' }, h('label', null, 'Type'), fSel),
+        on ? h('div', { class: 'knobs' },
+          K('fFreq', 'Cutoff', 20, 16000, { log: true, fmt: fmtHz, color: '#6cc6ff', title: 'Base frequency at middle C' }),
+          K('fQ', gainy ? 'Width' : 'Reso', 0.1, 25, { log: true, color: '#6cc6ff' }),
+          gainy ? K('fGain', 'Gain', -24, 24, { fmt: x => (x > 0 ? '+' : '') + x.toFixed(1) + 'dB', color: '#6cc6ff' }) : null,
+          K('fKey', 'Key track', 0, 1, { fmt: fmtPct, color: '#6cc6ff', title: 'How much the cutoff follows the note pitch' }),
+          K('fEnv', 'Env amount', -6, 6, { fmt: x => (x > 0 ? '+' : '') + x.toFixed(1) + ' oct', color: '#4fe0c0', title: 'How far the envelope sweeps the cutoff' }),
+          K('fA', 'Env attack', 0.001, 3, { log: true, fmt: fmtSec, color: '#4fe0c0' }),
+          K('fD', 'Env decay', 0.005, 4, { log: true, fmt: fmtSec, color: '#4fe0c0' }),
+          K('fS', 'Env sustain', 0, 1, { fmt: fmtPct, color: '#4fe0c0' }),
+          K('fLfoRate', 'LFO rate', 0.05, 20, { log: true, fmt: x => x.toFixed(2) + 'Hz', color: '#4fe0c0' }),
+          K('fLfoDepth', 'LFO depth', 0, 4, { fmt: x => x.toFixed(2) + ' oct', color: '#4fe0c0', title: 'Wobble / wah amount' })) : null));
+    }
+
+    root.append(sec('EQ',
+      h('div', { class: 'knobs' },
+        K('eqLow', 'Low', -18, 18, { fmt: x => (x > 0 ? '+' : '') + x.toFixed(1) + 'dB', color: '#9be36c' }),
+        K('eqMid', 'Mid', -18, 18, { fmt: x => (x > 0 ? '+' : '') + x.toFixed(1) + 'dB', color: '#9be36c' }),
+        K('eqMidF', 'Mid freq', 150, 8000, { log: true, fmt: fmtHz, color: '#9be36c' }),
+        K('eqHigh', 'High', -18, 18, { fmt: x => (x > 0 ? '+' : '') + x.toFixed(1) + 'dB', color: '#9be36c' }))));
 
     if (I.type !== 'drums') {
       const arpSel = h('select', null, Object.keys(ARP_MODES).map(k => h('option', { value: k, selected: I.arp === k }, ARP_LABELS[k])));
@@ -117,7 +164,9 @@ const INST = {
           K('vibDelay', 'Vib delay', 0, 1, { fmt: fmtSec, color: '#b48cff' }),
           K('sweep', 'Pitch env', -36, 36, { step: 1, fmt: x => (x > 0 ? '+' : '') + x + 'st', color: '#b48cff', title: 'Start this many semitones away and slide to the note' }),
           K('sweepTime', 'Env time', 0.01, 1, { log: true, fmt: fmtSec, color: '#b48cff' }),
-          K('glide', 'Glide', 0, 0.5, { fmt: fmtSec, color: '#b48cff', title: 'Portamento from the previous note' }))));
+          K('glide', 'Glide', 0, 0.5, { fmt: fmtSec, color: '#b48cff', title: 'Portamento from the previous note' }),
+          K('tremDepth', 'Tremolo', 0, 1, { fmt: fmtPct, color: '#b48cff', title: 'Volume wobble' }),
+          K('tremRate', 'Trem rate', 0.5, 20, { log: true, fmt: x => x.toFixed(1) + 'Hz', color: '#b48cff' }))));
     }
 
     root.append(sec('Character',

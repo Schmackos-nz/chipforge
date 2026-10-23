@@ -3,16 +3,21 @@
 
 const ARR = {
   ppb: 54, rowH: 44, HEAD: 168, RULER: 30,
-  sel: new Set(), drag: null, needs: true, follow: true,
+  sel: new Set(), drag: null, needs: true, follow: true, tool: 'paint', hover: null,
 
   init() {
     this.wrap = $('#arrWrap'); this.cv = $('#arrCanvas'); this.sc = $('#arrScroll'); this.sp = this.sc.firstElementChild;
     new ResizeObserver(() => this.resize()).observe(this.wrap);
     this.sc.addEventListener('scroll', () => this.requestDraw());
-    this.sc.addEventListener('mousedown', e => this.down(e));
+    bindPointer(this.sc, this);
     this.sc.addEventListener('contextmenu', e => e.preventDefault());
     this.sc.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); this.zoom(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX); } }, { passive: false });
-    this.sc.addEventListener('mousemove', e => { if (!this.drag) this.hoverCursor(e); });
+    this.sc.addEventListener('pointermove', e => {
+      const [mx, my] = this.local(e);
+      this.hover = mx > this.HEAD && my > this.RULER ? Math.max(0, this.barAt(mx)) : null;
+      if (!this.drag) this.hoverCursor(e);
+    });
+    this.sc.addEventListener('mouseleave', () => { this.hover = null; });
     this.buildToolbar();
   },
   requestDraw() { this.needs = true; },
@@ -55,20 +60,20 @@ const ARR = {
     const [mx, my] = this.local(e);
     let cur = 'default';
     if (my < this.RULER) cur = mx > this.HEAD ? 'text' : 'default';
-    else if (mx > this.HEAD) { const tr = App.song.tracks[this.rowAt(my)]; cur = tr && this.clipAt(tr.id, this.barAt(mx)) ? 'move' : tr ? 'copy' : 'default'; }
+    else if (mx > this.HEAD) {
+      const tr = App.song.tracks[this.rowAt(my)];
+      cur = tr && this.clipAt(tr.id, this.barAt(mx)) ? 'move' : this.tool === 'select' || e.ctrlKey || e.shiftKey ? 'crosshair' : tr ? 'copy' : 'default';
+    }
     else cur = 'pointer';
     this.sc.style.cursor = cur;
   },
-  capture() {
-    const mv = e => this.move(e), up = e => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); this.up(e); };
-    window.addEventListener('mousemove', mv);
-    window.addEventListener('mouseup', up);
-  },
+  capture() { dragCapture(this); },
 
   down(e) {
     const [mx, my] = this.local(e);
     if (mx > this.sc.clientWidth || my > this.sc.clientHeight) return;
     e.preventDefault();
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); // so shortcuts reach the playlist
     const s = App.song;
     if (my < this.RULER) {
       if (mx < this.HEAD) return;
@@ -89,11 +94,20 @@ const ARR = {
         changed({ lists: true }); return;
       }
       UI.selectTrack(tr.id);
-      if (e.detail === 2) UI.renameTrack(tr.id);
+      if (e.dbl) UI.renameTrack(tr.id);
       return;
     }
-    if (!tr) { if (!e.ctrlKey) { this.sel.clear(); this.requestDraw(); } return; }
-    const barF = Math.max(0, this.barAt(mx)), hit = this.clipAt(tr.id, barF);
+    const barF = Math.max(0, this.barAt(mx)), hit = tr ? this.clipAt(tr.id, barF) : null;
+    const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+    if (e.button === 0 && !hit && (this.tool === 'select' || additive || !tr)) {
+      // Box select: Select tool, Ctrl/Shift+drag, or dragging in the empty area under the tracks.
+      if (!additive) this.sel.clear();
+      this.drag = { type: 'marquee', b0: barF, r0: row, b1: barF, r1: row, base: new Set(this.sel) };
+      this.capture();
+      this.requestDraw();
+      return;
+    }
+    if (!tr) return;
     if (e.button === 2) {
       pushUndo();
       this.drag = { type: 'erase', changed: false };
@@ -103,17 +117,17 @@ const ARR = {
     }
     if (e.button !== 0) return;
     if (hit) {
-      if (e.detail === 2) { PR.open(hit.pattern); return; }
-      if (e.ctrlKey) { if (this.sel.has(hit)) this.sel.delete(hit); else this.sel.add(hit); this.requestDraw(); return; }
+      if (e.dbl) { PR.open(hit.pattern); return; }
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl+click toggles the clip; Ctrl+drag box-selects even when starting on a clip.
+        this.drag = { type: 'marquee', b0: barF, r0: row, b1: barF, r1: row, base: new Set(this.sel), toggle: hit, moved: false };
+        this.capture();
+        return;
+      }
       if (!this.sel.has(hit)) { this.sel.clear(); this.sel.add(hit); }
       App.selTrack = tr.id; App.selPattern = hit.pattern;
       UI.render({ lists: true });
       this.drag = { type: 'move', orig: [...this.sel].map(c => [c, c.bar]), b0: barF, pushed: false, dup: e.shiftKey };
-      this.capture();
-      return;
-    }
-    if (e.ctrlKey) {
-      this.drag = { type: 'marquee', b0: barF, r0: row, b1: barF, r1: row };
       this.capture();
       return;
     }
@@ -137,10 +151,13 @@ const ARR = {
     if (d.type === 'ruler') { d.b1 = Math.max(0, Math.floor(barF)); this.requestDraw(); return; }
     if (d.type === 'erase') { this.eraseAt(mx, my); return; }
     if (d.type === 'marquee') {
-      d.b1 = barF; d.r1 = this.rowAt(my);
+      const row = this.rowAt(my);
+      if (Math.abs(barF - d.b0) * this.ppb > 3 || row !== d.r0) d.moved = true;
+      if (d.toggle && !d.moved) return;
+      d.b1 = barF; d.r1 = row;
       const b0 = Math.min(d.b0, d.b1), b1 = Math.max(d.b0, d.b1), r0 = Math.min(d.r0, d.r1), r1 = Math.max(d.r0, d.r1);
       const pm = patternMap(App.song);
-      this.sel.clear();
+      this.sel = new Set(d.base);
       App.song.tracks.forEach((t, r) => {
         if (r < r0 || r > r1) return;
         for (const c of App.song.clips) if (c.track === t.id) { const p = pm.get(c.pattern); if (p && c.bar < b1 && c.bar + p.bars > b0) this.sel.add(c); }
@@ -176,6 +193,7 @@ const ARR = {
     const d = this.drag;
     this.drag = null;
     if (!d) return;
+    if (d.type === 'marquee' && d.toggle && !d.moved) { if (this.sel.has(d.toggle)) this.sel.delete(d.toggle); else this.sel.add(d.toggle); }
     if (d.type === 'ruler') {
       if (d.b0 === d.b1) Transport.setSongPos(d.b0 * barTicks());
       else {
@@ -203,36 +221,14 @@ const ARR = {
   },
 
   key(e) {
-    const k = e.key, ctrl = e.ctrlKey || e.metaKey, s = App.song, sel = [...this.sel];
-    const pm = patternMap(s);
-    if (ctrl && k.toLowerCase() === 'a') { this.sel = new Set(s.clips); this.requestDraw(); return true; }
-    if (k === 'Delete' || k === 'Backspace') {
-      if (!sel.length) return true;
-      pushUndo();
-      s.clips = s.clips.filter(c => !this.sel.has(c));
-      this.sel.clear();
-      changed({});
-      return true;
-    }
-    if (ctrl && k.toLowerCase() === 'c') { if (sel.length) { App.clipClips = sel.map(c => Object.assign({}, c)); toast(sel.length + ' clips copied'); } return true; }
-    if (ctrl && k.toLowerCase() === 'v') {
-      if (!App.clipClips || !App.clipClips.length) return true;
-      pushUndo();
-      const minB = Math.min(...App.clipClips.map(c => c.bar)), at = Math.floor(Transport.songPos / barTicks());
-      this.sel.clear();
-      for (const c of App.clipClips) if (pm.has(c.pattern)) this.sel.add(addClip(s, c.track, c.pattern, c.bar - minB + at));
-      changed({}); this.layout();
-      return true;
-    }
-    if (ctrl && k.toLowerCase() === 'd') {
-      if (!sel.length) return true;
-      pushUndo();
-      const b0 = Math.min(...sel.map(c => c.bar)), b1 = Math.max(...sel.map(c => c.bar + (pm.get(c.pattern) || { bars: 1 }).bars));
-      this.sel.clear();
-      for (const c of sel) this.sel.add(addClip(s, c.track, c.pattern, c.bar + (b1 - b0)));
-      changed({}); this.layout();
-      return true;
-    }
+    const k = e.key, ctrl = e.ctrlKey || e.metaKey, sel = [...this.sel], lk = k.toLowerCase();
+    if (ctrl && lk === 'a') { this.selectAll(); return true; }
+    if (ctrl && lk === 'c') { this.copy(); return true; }
+    if (ctrl && lk === 'x') { this.cut(); return true; }
+    if (ctrl && lk === 'v') { this.paste(); return true; }
+    if (ctrl && lk === 'd') { this.duplicate(); return true; }
+    if (k === 'Delete' || k === 'Backspace') { this.del(); return true; }
+    if (k === 'Escape') { this.sel.clear(); this.requestDraw(); return true; }
     if (k === 'ArrowLeft' || k === 'ArrowRight') {
       if (!sel.length) return false;
       const dir = k === 'ArrowRight' ? 1 : -1;
@@ -243,6 +239,52 @@ const ARR = {
       return true;
     }
     return false;
+  },
+
+  // ---- clipboard / selection (shared by shortcuts and toolbar buttons)
+  selEnd(sel) { const pm = patternMap(App.song); return Math.max(...sel.map(c => c.bar + (pm.get(c.pattern) || { bars: 1 }).bars)); },
+  selectAll() { this.sel = new Set(App.song.clips); this.requestDraw(); },
+  copy() {
+    const sel = [...this.sel];
+    if (!sel.length) return toast('Select clips first (Select tool, Ctrl/Shift+drag, or Ctrl+A)');
+    App.clipClips = sel.map(c => Object.assign({}, c));
+    toast(sel.length + ' clip' + (sel.length > 1 ? 's' : '') + ' copied');
+  },
+  cut() {
+    if (!this.sel.size) return;
+    this.copy();
+    this.del();
+  },
+  // Pastes at the mouse bar if it's over the playlist, else right after the selection, else at the song position.
+  paste() {
+    const s = App.song, pm = patternMap(s);
+    if (!App.clipClips || !App.clipClips.length) return toast('Nothing copied yet');
+    pushUndo();
+    const sel = [...this.sel], minB = Math.min(...App.clipClips.map(c => c.bar));
+    const at = this.hover != null ? Math.floor(this.hover) : sel.length ? this.selEnd(sel) : Math.floor(Transport.songPos / barTicks());
+    this.sel.clear();
+    for (const c of App.clipClips) if (pm.has(c.pattern)) this.sel.add(addClip(s, c.track, c.pattern, c.bar - minB + at));
+    changed({}); this.layout();
+  },
+  duplicate() {
+    const s = App.song, sel = [...this.sel];
+    if (!sel.length) return;
+    pushUndo();
+    const span = this.selEnd(sel) - Math.min(...sel.map(c => c.bar));
+    this.sel.clear();
+    for (const c of sel) this.sel.add(addClip(s, c.track, c.pattern, c.bar + span));
+    changed({}); this.layout();
+  },
+  del() {
+    if (!this.sel.size) return;
+    pushUndo();
+    App.song.clips = App.song.clips.filter(c => !this.sel.has(c));
+    this.sel.clear();
+    changed({});
+  },
+  setTool(t) {
+    this.tool = t;
+    $$('#arrTools [data-atool]').forEach(b => b.classList.toggle('on', b.dataset.atool === t));
   },
 
   makeUnique() {
@@ -288,8 +330,18 @@ const ARR = {
     const tb = $('#arrTools');
     const followBtn = h('button', { class: 'tog on', title: 'Scroll with the playhead' }, 'Follow');
     followBtn.onclick = () => { this.follow = !this.follow; followBtn.classList.toggle('on', this.follow); };
+    const toolBtn = (t, label, title) => h('button', { 'data-atool': t, class: this.tool === t ? 'on' : '', title, onclick: () => this.setTool(t) }, label);
     tb.append(
-      h('span', { class: 'empty', style: { padding: '0 4px' } }, 'Click = paint pattern · drag = move/stamp · Shift+drag = copy · right-click = delete · double-click = edit · Ctrl+drag = select · drag ruler = loop'),
+      toolBtn('paint', '✎ Paint', 'Click to paint the current pattern, drag clips to move, Shift+drag to copy, right-click to delete'),
+      toolBtn('select', '⬚ Select', 'Drag a box to select several clips (Ctrl/Shift+drag does this in Paint mode too)'),
+      h('span', { class: 'sep' }),
+      h('button', { title: 'Select all clips (Ctrl+A)', onclick: () => this.selectAll() }, 'All'),
+      h('button', { title: 'Copy selected clips (Ctrl+C)', onclick: () => this.copy() }, 'Copy'),
+      h('button', { title: 'Cut selected clips (Ctrl+X)', onclick: () => this.cut() }, 'Cut'),
+      h('button', { title: 'Paste (Ctrl+V) — at the mouse bar, or after the selection', onclick: () => this.paste() }, 'Paste'),
+      h('button', { title: 'Duplicate selection right after itself (Ctrl+D)', onclick: () => this.duplicate() }, 'Dup'),
+      h('button', { title: 'Delete selected clips (Del)', onclick: () => this.del() }, 'Del'),
+      h('span', { class: 'empty arrhint', style: { padding: '0 4px' } }, 'double-click = edit · drag ruler = loop'),
       h('span', { style: { flex: 1 } }),
       h('button', { title: 'Copy selected clips into new, independent patterns', onclick: () => this.makeUnique() }, 'Make unique'),
       h('button', { title: 'Set loop region to the selection', onclick: () => this.loopSelection() }, 'Loop sel.'),
@@ -385,9 +437,11 @@ const ARR = {
       g.fillRect(0, y, this.HEAD - 1, this.rowH - 1);
       g.fillStyle = t.color; g.fillRect(0, y, 4, this.rowH - 1);
       g.fillStyle = t.mute ? '#6a7080' : '#d9dde7'; g.font = 'bold 12px system-ui';
-      g.fillText(t.name.length > 18 ? t.name.slice(0, 17) + '…' : t.name, 10, y + 13);
+      const maxC = Math.max(6, Math.floor((this.HEAD - 16) / 8));
+      g.fillText(t.name.length > maxC ? t.name.slice(0, maxC - 1) + '…' : t.name, 10, y + 13);
       g.fillStyle = '#7f8696'; g.font = '10px system-ui';
-      g.fillText((INST_TYPES.find(x => x[0] === t.inst.type) || ['', ''])[1], 10, y + 31);
+      const tl = (INST_TYPES.find(x => x[0] === t.inst.type) || ['', ''])[1], tc = Math.floor((this.HEAD - 64) / 5.5);
+      g.fillText(tl.length > tc ? tl.slice(0, tc - 1) + '…' : tl, 10, y + 31);
       const bx = this.HEAD - 50;
       g.fillStyle = t.mute ? '#ff6060' : '#2a2f3a'; g.fillRect(bx, y + 23, 20, 16);
       g.fillStyle = t.solo ? '#ffcf5a' : '#2a2f3a'; g.fillRect(bx + 23, y + 23, 20, 16);

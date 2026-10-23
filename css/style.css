@@ -13,7 +13,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: system-ui, "Segoe UI", sans-serif; overflow: hidden; user-select: none; }
-body { display: grid; grid-template-rows: auto 1fr 26px; }
+body { display: grid; grid-template-rows: auto 1fr 26px; grid-template-columns: minmax(0, 1fr); }
 button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; font: inherit; cursor: pointer; white-space: nowrap; }
 button:hover { border-color: #4c5467; background: #2c313c; }
 button:active { transform: translateY(1px); }
@@ -183,3 +183,43 @@ table.keys td:first-child { font-family: Consolas, monospace; color: var(--acc);
 .mtabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
 .mtabs button { padding: 6px 14px; }
 @media (max-width: 760px) { .prow { grid-template-columns: 22px 1fr 1fr; } }
+
+/* ---- touch + small screens */
+.tabsp { flex: 1; }
+.mob-narrow, .mob-touch { display: none; }
+#scrim { display: none; position: fixed; inset: 0; background: rgba(5, 6, 9, .55); z-index: 39; }
+#scrim.on { display: block; }
+.scroller { touch-action: auto; }
+body.touchedit .scroller, .velwrap canvas, .dial, .wavec { touch-action: none; }
+@media (pointer: coarse) {
+  .mob-touch { display: inline-block; }
+  button, select, input:not([type=range]):not([type=checkbox]) { min-height: 32px; }
+  .dial { width: 40px; height: 40px; }
+  .knob { width: 58px; }
+  #btnTyping, #btnMidi, #octDn, #octUp, #octVal, #status > span:not(#statusMsg):not(.sp) { display: none; }
+}
+@media (max-width: 900px) {
+  html, body { height: 100dvh; }
+  :root { font-size: 14px; }
+  .mob-narrow { display: inline-block; }
+  main { grid-template-columns: 1fr; }
+  aside { position: fixed; top: 0; bottom: 0; z-index: 40; width: min(88vw, 340px); transition: transform .2s ease; box-shadow: 0 0 40px #000c; }
+  #left { left: 0; transform: translateX(-105%); }
+  #right { right: 0; transform: translateX(105%); }
+  #left.open, #right.open { transform: none; }
+  #top { flex-wrap: nowrap; overflow-x: auto; gap: 8px; padding: 5px 8px; scrollbar-width: none; }
+  #top::-webkit-scrollbar { display: none; }
+  #top > * { flex: 0 0 auto; }
+  .logo { font-size: 15px; order: -2; }
+  #top .transport { order: -1; }
+  #scope { display: none; }
+  .toolbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+  .toolbar > * { flex: 0 0 auto; }
+  .arrhint { display: none; }
+  #tabs { padding: 4px 4px 0; overflow-x: auto; }
+  #tabs button { padding: 6px 10px; }
+  .velwrap { height: 60px; }
+  .mbox { width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; }
+  #status { font-size: 11px; }
+  #statusMsg { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+}

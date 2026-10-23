@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>ChipForge — 8-bit Music Studio</title>
-<link rel="stylesheet" href="css/style.css?v=3">
+<link rel="stylesheet" href="css/style.css?v=4">
 </head>
 <body>
 <header id="top">
@@ -53,9 +53,13 @@
 
   <section id="center">
     <nav id="tabs">
+      <button id="btnRack" class="mob-narrow" title="Channel rack &amp; patterns">☰</button>
       <button data-view="arrange" title="F5">Playlist</button>
       <button data-view="piano" title="F7">Piano Roll</button>
       <button data-view="mixer" title="F9">Mixer</button>
+      <span class="tabsp"></span>
+      <button id="btnTouch" class="mob-touch tog" title="Touch: Scroll mode drags the view (tap still edits); Edit mode drags notes, clips and selection boxes">✋ Scroll</button>
+      <button id="btnInst" class="mob-narrow" title="Instrument settings">🎛 Sound</button>
     </nav>
     <div id="view-arrange" class="view">
       <div class="toolbar" id="arrTools"></div>
@@ -83,24 +87,25 @@
   <button id="btnMidi" title="Enable a MIDI keyboard">MIDI In</button>
 </footer>
 
+<div id="scrim"></div>
 <div id="modal" class="modal hidden"><div class="mbox"><div class="mhead"><span id="mtitle"></span><button id="mclose">✕</button></div><div id="mbody"></div></div></div>
 <input type="file" id="fileInput" hidden>
 <div id="toast"></div>
 
-<script src="js/util.js?v=3"></script>
-<script src="js/theory.js?v=3"></script>
-<script src="js/audio.js?v=3"></script>
-<script src="js/song.js?v=3"></script>
-<script src="js/generator.js?v=3"></script>
-<script src="js/midi.js?v=3"></script>
-<script src="js/transport.js?v=3"></script>
-<script src="js/export.js?v=3"></script>
-<script src="js/ui-knob.js?v=3"></script>
-<script src="js/ui-instrument.js?v=3"></script>
-<script src="js/ui-pianoroll.js?v=3"></script>
-<script src="js/ui-arrange.js?v=3"></script>
-<script src="js/ui-mixer.js?v=3"></script>
-<script src="js/ui-modals.js?v=3"></script>
-<script src="js/main.js?v=3"></script>
+<script src="js/util.js?v=4"></script>
+<script src="js/theory.js?v=4"></script>
+<script src="js/audio.js?v=4"></script>
+<script src="js/song.js?v=4"></script>
+<script src="js/generator.js?v=4"></script>
+<script src="js/midi.js?v=4"></script>
+<script src="js/transport.js?v=4"></script>
+<script src="js/export.js?v=4"></script>
+<script src="js/ui-knob.js?v=4"></script>
+<script src="js/ui-instrument.js?v=4"></script>
+<script src="js/ui-pianoroll.js?v=4"></script>
+<script src="js/ui-arrange.js?v=4"></script>
+<script src="js/ui-mixer.js?v=4"></script>
+<script src="js/ui-modals.js?v=4"></script>
+<script src="js/main.js?v=4"></script>
 </body>
 </html>

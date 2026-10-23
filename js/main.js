@@ -226,6 +226,30 @@ const UI = {
   },
 };
 
+// ------------------------------------------------------------------ touch / small screens
+function initMobile() {
+  const narrow = window.matchMedia('(max-width: 900px)'), coarse = window.matchMedia('(pointer: coarse)');
+  const scrim = $('#scrim');
+  const drawer = (id, open) => {
+    for (const a of ['#left', '#right']) $(a).classList.toggle('open', a === id && open);
+    scrim.classList.toggle('on', !!open);
+  };
+  $('#btnRack').onclick = () => drawer('#left', !$('#left').classList.contains('open'));
+  $('#btnInst').onclick = () => drawer('#right', !$('#right').classList.contains('open'));
+  scrim.onclick = () => drawer(null, false);
+  for (const a of ['#left', '#right']) $(a + ' .phead').append(h('button', { class: 'mob-narrow', title: 'Close', onclick: () => drawer(null, false) }, '✕'));
+  narrow.addEventListener('change', () => { if (!narrow.matches) drawer(null, false); });
+  const touchBtn = $('#btnTouch');
+  touchBtn.onclick = () => {
+    const on = document.body.classList.toggle('touchedit');
+    touchBtn.classList.toggle('on', on);
+    touchBtn.textContent = on ? '✎ Edit' : '✋ Scroll';
+  };
+  // Bigger rows for fingers, narrower headers for phones.
+  if (coarse.matches) { PR.rowH = 20; ARR.rowH = 52; }
+  if (narrow.matches) { PR.KEYW = 52; ARR.HEAD = 120; }
+}
+
 // ------------------------------------------------------------------ keyboard
 const PIANO_KEYS = { z: 0, s: 1, x: 2, d: 3, c: 4, v: 5, g: 6, b: 7, h: 8, n: 9, j: 10, m: 11, ',': 12, l: 13, '.': 14, ';': 15, '/': 16,
   q: 12, 2: 13, w: 14, 3: 15, e: 16, r: 17, 5: 18, t: 19, 6: 20, y: 21, 7: 22, u: 23, i: 24, 9: 25, o: 26, 0: 27, p: 28 };
@@ -240,10 +264,10 @@ function typedPitch(k) {
 
 document.addEventListener('keydown', e => {
   if (Modal.isOpen()) { if (e.key === 'Escape') Modal.close(); return; }
-  const tag = e.target.tagName;
-  const typing = tag === 'TEXTAREA' || (tag === 'INPUT' && !['range', 'checkbox', 'color'].includes(e.target.type)) || tag === 'SELECT';
+  const tag = e.target.tagName, k = e.key, ctrl = e.ctrlKey || e.metaKey;
+  // A focused dropdown only swallows plain keys, so Ctrl+C/V still work after changing e.g. snap.
+  const typing = tag === 'TEXTAREA' || (tag === 'INPUT' && !['range', 'checkbox', 'color'].includes(e.target.type)) || (tag === 'SELECT' && !ctrl);
   if (typing) return;
-  const k = e.key, ctrl = e.ctrlKey || e.metaKey;
   if (k === ' ') { e.preventDefault(); Transport.toggle(); return; }
   if (k === 'F5' || k === 'F7' || k === 'F9') { e.preventDefault(); UI.setView(k === 'F5' ? 'arrange' : k === 'F7' ? 'piano' : 'mixer'); return; }
   if (k === 'Home') { e.preventDefault(); Transport.setSongPos(0); Transport.setPatPos(0); return; }
@@ -252,7 +276,7 @@ document.addEventListener('keydown', e => {
   if (ctrl && k.toLowerCase() === 's') { e.preventDefault(); saveProject(); return; }
   if (ctrl && k.toLowerCase() === 'o') { e.preventDefault(); openProject(); return; }
   const editor = App.view === 'piano' ? PR : App.view === 'arrange' ? ARR : null;
-  if (editor && (ctrl || ['Delete', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k))) {
+  if (editor && (ctrl || ['Delete', 'Backspace', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(k))) {
     if (editor.key(e)) { e.preventDefault(); return; }
   }
   if (ctrl || e.altKey) return;
@@ -347,6 +371,7 @@ function boot() {
   ARR.init();
   UI.syncTop();
   UI.setView('arrange');
+  initMobile();
   UI.setTool('draw');
   UI.render({ full: true });
   setTimeout(() => PR.scrollToNotes(), 50);

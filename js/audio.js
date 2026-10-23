@@ -10,13 +10,23 @@ const DRUM_KIT = [
   { p: 45, name: 'Low Tom' }, { p: 46, name: 'Open Hat' }, { p: 42, name: 'Closed Hat' }, { p: 39, name: 'Clap' },
   { p: 37, name: 'Rim' }, { p: 38, name: 'Snare' }, { p: 36, name: 'Kick' },
 ];
+// Kit voicings: kick [start Hz, end Hz, decay], snare [noise rate, decay, hp], hat [rate, closed decay, hp, open decay].
+const DRUM_KITS = {
+  chip: { kick: [170, 42, 0.24], click: 0.5, snare: [0.85, 0.17, 900], hat: [1.4, 0.045, 7000, 0.3], tom: 1, body: null, short: false },
+  boom: { kick: [125, 34, 0.6], click: 0.25, snare: [0.6, 0.24, 500], hat: [1.2, 0.06, 6500, 0.45], tom: 0.75, body: 'sine', short: false },
+  tight: { kick: [210, 55, 0.11], click: 0.7, snare: [1.1, 0.09, 1800], hat: [1.7, 0.025, 8000, 0.16], tom: 1.25, body: null, short: true },
+  arcade: { kick: [150, 45, 0.2], click: 0.6, snare: [0.7, 0.14, 1300], hat: [1.0, 0.04, 5000, 0.25], tom: 1, body: 'pulse', short: true },
+};
 const DRUM_NAME = {};
 DRUM_KIT.forEach(d => { DRUM_NAME[d.p] = d.name; });
 
 const INST_TYPES = [
   ['pulse', 'Pulse / Square'], ['triangle', 'Triangle (NES)'], ['saw', 'Saw (4-bit)'], ['sine', 'Sine (4-bit)'],
-  ['wave', 'Wavetable (GB)'], ['noise', 'Noise (LFSR)'], ['drums', 'Drum Kit'],
+  ['wave', 'Wavetable (GB)'], ['fm', 'FM 2-op (Genesis)'], ['pwm', 'PWM Pulse (C64 SID)'], ['ssaw', 'Saw (smooth)'],
+  ['ssine', 'Sine (pure)'], ['noise', 'Noise (LFSR)'], ['drums', 'Drum Kit'],
 ];
+const KIT_TYPES = [['chip', 'Chip (NES)'], ['boom', 'Boom (808-ish)'], ['tight', 'Tight (Game Boy)'], ['arcade', 'Arcade (buzzy)']];
+const FILTER_TYPES = [['off', 'Off'], ['lowpass', 'Low-pass'], ['highpass', 'High-pass'], ['bandpass', 'Band-pass'], ['notch', 'Notch'], ['peaking', 'Peak'], ['lowshelf', 'Low shelf'], ['highshelf', 'High shelf']];
 const ARP_MODES = {
   off: null, maj: [0, 4, 7], min: [0, 3, 7], oct: [0, 12], pow: [0, 7, 12], maj7: [0, 4, 7, 11], min7: [0, 3, 7, 10],
   sus4: [0, 5, 7], dim: [0, 3, 6], updown: [0, 4, 7, 12, 7, 4], custom: 'custom',
@@ -34,7 +44,15 @@ function defaultInst(type) {
     vibRate: 5.5, vibDepth: 0, vibDelay: 0.15,
     arp: 'off', arpCustom: '0 4 7 12', arpSpeed: 30,
     sweep: 0, sweepTime: 0.08, glide: 0, mono: false,
-    delay: 0, reverb: 0, kitTune: 0, kitDecay: 1,
+    delay: 0, reverb: 0, kitTune: 0, kitDecay: 1, kit: 'chip',
+    unison: 1, uniSpread: 14,
+    fmRatio: 2, fmIndex: 2.5, fmDecay: 0.4, fmSus: 0.35,
+    pwmRate: 2.5, pwmDepth: 0.4,
+    slope: 12,
+    // per-note filter with its own envelope and LFO
+    fType: 'off', fFreq: 1800, fQ: 2, fGain: 6, fEnv: 0, fA: 0.002, fD: 0.25, fS: 0, fKey: 0.5, fLfoRate: 3, fLfoDepth: 0,
+    tremRate: 5, tremDepth: 0,
+    eqLow: 0, eqMid: 0, eqMidF: 1000, eqHigh: 0,
   };
 }
 
@@ -65,6 +83,37 @@ const PRESETS = [
   { name: 'Bell Sparkle', cat: 'Lead', p: { type: 'sine', a: 0.001, d: 0.35, s: 0, r: 0.25, delay: 0.35, reverb: 0.3, vol: 0.4 } },
   { name: 'Drum Kit', cat: 'Drums', p: { type: 'drums', vol: 0.8 } },
   { name: 'Crunchy Kit', cat: 'Drums', p: { type: 'drums', bits: 5, drive: 0.2, vol: 0.75 } },
+  { name: 'Boom Kit', cat: 'Drums', p: { type: 'drums', kit: 'boom', vol: 0.8 } },
+  { name: 'Tight GB Kit', cat: 'Drums', p: { type: 'drums', kit: 'tight', vol: 0.8 } },
+  { name: 'Arcade Kit', cat: 'Drums', p: { type: 'drums', kit: 'arcade', bits: 6, vol: 0.75 } },
+  // FM
+  { name: 'FM E-Piano', cat: 'FM', p: { type: 'fm', fmRatio: 1, fmIndex: 1.8, fmDecay: 0.5, fmSus: 0.15, a: 0.002, d: 0.9, s: 0.25, r: 0.3, vol: 0.55, reverb: 0.2 } },
+  { name: 'FM Slap Bass', cat: 'FM', p: { type: 'fm', fmRatio: 1, fmIndex: 4, fmDecay: 0.12, fmSus: 0.2, a: 0.001, d: 0.3, s: 0.5, r: 0.06, vol: 0.6 } },
+  { name: 'FM Bell', cat: 'FM', p: { type: 'fm', fmRatio: 3.5, fmIndex: 3, fmDecay: 1.2, fmSus: 0.2, a: 0.001, d: 1.6, s: 0, r: 0.8, vol: 0.4, reverb: 0.3 } },
+  { name: 'FM Brass', cat: 'FM', p: { type: 'fm', fmRatio: 1, fmIndex: 3, fmDecay: 0.6, fmSus: 0.7, a: 0.05, d: 0.3, s: 0.8, r: 0.12, vol: 0.45, vibDepth: 12 } },
+  { name: 'FM Marimba', cat: 'FM', p: { type: 'fm', fmRatio: 4, fmIndex: 2, fmDecay: 0.08, fmSus: 0, a: 0.001, d: 0.35, s: 0, r: 0.15, vol: 0.6 } },
+  { name: 'FM Steel Drum', cat: 'FM', p: { type: 'fm', fmRatio: 1.41, fmIndex: 2.2, fmDecay: 0.3, fmSus: 0.2, a: 0.001, d: 0.5, s: 0, r: 0.3, vol: 0.5, delay: 0.2 } },
+  { name: 'FM Growl Lead', cat: 'FM', p: { type: 'fm', fmRatio: 0.5, fmIndex: 5, fmDecay: 2, fmSus: 0.9, a: 0.002, d: 0.2, s: 0.8, r: 0.08, vol: 0.4, drive: 0.3 } },
+  // PWM / SID
+  { name: 'SID PWM Lead', cat: 'PWM', p: { type: 'pwm', duty: 0.5, pwmRate: 3, pwmDepth: 0.6, a: 0.003, d: 0.2, s: 0.7, r: 0.08, vibDepth: 16, vibDelay: 0.2, vol: 0.45 } },
+  { name: 'SID PWM Pad', cat: 'PWM', p: { type: 'pwm', duty: 0.5, pwmRate: 0.8, pwmDepth: 0.8, unison: 2, uniSpread: 9, a: 0.3, d: 0.6, s: 0.7, r: 0.7, cutoff: 3200, reverb: 0.35, vol: 0.38 } },
+  { name: 'SID Bass', cat: 'PWM', p: { type: 'pwm', duty: 0.3, pwmRate: 5, pwmDepth: 0.3, a: 0.001, d: 0.15, s: 0.6, r: 0.05, fType: 'lowpass', fFreq: 400, fQ: 4, fEnv: 3, fD: 0.15, fS: 0.1, vol: 0.55 } },
+  // Synth (smooth + filters)
+  { name: 'Supersaw Lead', cat: 'Synth', p: { type: 'ssaw', unison: 5, uniSpread: 22, a: 0.004, d: 0.2, s: 0.75, r: 0.15, cutoff: 7000, vol: 0.35, delay: 0.25 } },
+  { name: 'Detuned Square', cat: 'Synth', p: { type: 'pulse', duty: 0.5, unison: 2, uniSpread: 10, a: 0.002, d: 0.2, s: 0.7, r: 0.08, vol: 0.45 } },
+  { name: 'Acid Bass', cat: 'Synth', p: { type: 'ssaw', mono: true, glide: 0.05, a: 0.001, d: 0.2, s: 0.5, r: 0.05, fType: 'lowpass', fFreq: 300, fQ: 12, fEnv: 3.5, fA: 0.001, fD: 0.18, fS: 0.1, fKey: 0.3, vol: 0.5, drive: 0.2 } },
+  { name: 'Square Pluck', cat: 'Synth', p: { type: 'pulse', duty: 0.25, a: 0.001, d: 0.25, s: 0, r: 0.1, fType: 'lowpass', fFreq: 500, fQ: 3, fEnv: 4, fA: 0.001, fD: 0.12, fS: 0, vol: 0.55 } },
+  { name: 'Wah Lead', cat: 'Synth', p: { type: 'ssaw', a: 0.01, d: 0.2, s: 0.8, r: 0.1, fType: 'bandpass', fFreq: 900, fQ: 5, fLfoRate: 2.5, fLfoDepth: 1.5, vol: 0.5 } },
+  { name: 'Sub Bass', cat: 'Synth', p: { type: 'ssine', a: 0.002, d: 0.1, s: 0.95, r: 0.06, vol: 0.8 } },
+  { name: 'Sweep Pad', cat: 'Synth', p: { type: 'ssaw', unison: 3, uniSpread: 12, a: 0.6, d: 1, s: 0.8, r: 1.2, fType: 'lowpass', fFreq: 500, fQ: 4, fEnv: 2.5, fA: 1.5, fD: 2, fS: 0.4, reverb: 0.45, vol: 0.32 } },
+  { name: 'Tremolo Organ', cat: 'Synth', p: { type: 'wave', wave: [8, 12, 14, 15, 14, 13, 13, 14, 15, 14, 12, 10, 9, 9, 10, 9, 7, 5, 4, 5, 6, 6, 5, 3, 1, 0, 1, 2, 2, 1, 2, 4], tremRate: 6, tremDepth: 0.5, a: 0.01, d: 0.1, s: 0.9, r: 0.08, vol: 0.45 } },
+  { name: 'Choir Ooh', cat: 'Synth', p: { type: 'ssine', unison: 4, uniSpread: 16, a: 0.25, d: 0.4, s: 0.8, r: 0.5, vibDepth: 10, vibRate: 5, fType: 'peaking', fFreq: 700, fQ: 2, fGain: 9, reverb: 0.4, vol: 0.4 } },
+  { name: 'Telephone Lead', cat: 'Synth', p: { type: 'pulse', duty: 0.25, a: 0.002, d: 0.2, s: 0.7, r: 0.06, hpf: 600, cutoff: 3000, slope: 24, vol: 0.6 } },
+  // SFX
+  { name: 'Coin', cat: 'SFX', p: { type: 'pulse', duty: 0.5, arp: 'custom', arpCustom: '0 5', arpSpeed: 14, a: 0.001, d: 0.35, s: 0, r: 0.1, vol: 0.5 } },
+  { name: 'Siren', cat: 'SFX', p: { type: 'pulse', duty: 0.5, vibDepth: 300, vibRate: 2, vibDelay: 0, a: 0.01, d: 0.1, s: 1, r: 0.1, vol: 0.4 } },
+  { name: 'Explosion', cat: 'SFX', p: { type: 'noise', a: 0.001, d: 0.9, s: 0, r: 0.3, fType: 'lowpass', fFreq: 300, fQ: 1, fEnv: 4, fD: 0.4, fS: 0, vol: 0.7 } },
+  { name: 'Power Up', cat: 'SFX', p: { type: 'pulse', duty: 0.125, sweep: -24, sweepTime: 0.4, arp: 'off', a: 0.001, d: 0.5, s: 0, r: 0.1, vol: 0.5 } },
 ];
 function presetByName(n) { return PRESETS.find(p => p.name === n); }
 function instFromPreset(name) { const pr = presetByName(name); return Object.assign(defaultInst(pr ? pr.p.type : 'pulse'), pr ? deepClone(pr.p) : {}); }
@@ -91,6 +140,8 @@ function pulseData(duty) { const N = 64, hi = Math.max(1, Math.round(duty * N));
 function triData() { const a = []; for (let i = 0; i < 32; i++) { const v = i < 16 ? 15 - i : i - 16; a.push(v / 7.5 - 1); } return a; }
 function sawData() { const a = []; for (let i = 0; i < 32; i++) a.push(Math.floor(i / 2) / 7.5 - 1); return a; }
 function sineData() { const a = []; for (let i = 0; i < 32; i++) a.push(Math.round((Math.sin(i / 32 * Math.PI * 2) + 1) * 7.5) / 7.5 - 1); return a; }
+function ssawData() { const a = []; for (let i = 0; i < 256; i++) a.push(i / 128 - 1); return dcFree(a); }
+function ssineData() { const a = []; for (let i = 0; i < 256; i++) a.push(Math.sin(i / 256 * Math.PI * 2)); return a; }
 function waveData(w) { return dcFree(w.map(v => clamp(v, 0, 15) / 7.5 - 1)); }
 function lfsrData(short) {
   let reg = 1;
@@ -147,6 +198,8 @@ class ChipEngine {
       case 'triangle': return this.buf('tri', triData);
       case 'saw': return this.buf('saw', sawData);
       case 'sine': return this.buf('sine', sineData);
+      case 'ssaw': return this.buf('ssaw', ssawData);
+      case 'ssine': return this.buf('ssine', ssineData);
       case 'wave': return this.buf('w' + I.wave.join(','), () => waveData(I.wave));
       default: return this.buf('p' + I.duty, () => pulseData(I.duty));
     }
@@ -191,12 +244,15 @@ class ChipEngine {
   makeChain() {
     const c = this.ctx, ch = {};
     ch.input = c.createGain();
-    ch.hp = c.createBiquadFilter(); ch.hp.type = 'highpass';
-    ch.lp = c.createBiquadFilter(); ch.lp.type = 'lowpass';
+    const bq = type => { const f = c.createBiquadFilter(); f.type = type; return f; };
+    ch.hp = bq('highpass'); ch.hp2 = bq('highpass'); ch.lp = bq('lowpass'); ch.lp2 = bq('lowpass');
+    ch.eqL = bq('lowshelf'); ch.eqM = bq('peaking'); ch.eqH = bq('highshelf');
+    ch.eqL.frequency.value = 220; ch.eqH.frequency.value = 4000; ch.eqM.Q.value = 0.9;
     ch.crush = c.createWaveShaper(); ch.drv = c.createWaveShaper();
     ch.vol = c.createGain(); ch.pan = c.createStereoPanner(); ch.mute = c.createGain();
     ch.dSend = c.createGain(); ch.rSend = c.createGain();
-    ch.input.connect(ch.hp); ch.hp.connect(ch.lp); ch.lp.connect(ch.crush); ch.crush.connect(ch.drv);
+    ch.input.connect(ch.hp); ch.hp.connect(ch.hp2); ch.hp2.connect(ch.lp); ch.lp.connect(ch.lp2);
+    ch.lp2.connect(ch.eqL); ch.eqL.connect(ch.eqM); ch.eqM.connect(ch.eqH); ch.eqH.connect(ch.crush); ch.crush.connect(ch.drv);
     ch.drv.connect(ch.vol); ch.vol.connect(ch.pan); ch.pan.connect(ch.mute); ch.mute.connect(this.m.bus);
     ch.mute.connect(ch.dSend); ch.dSend.connect(this.m.delayIn);
     ch.mute.connect(ch.rSend); ch.rSend.connect(this.m.revIn);
@@ -212,6 +268,16 @@ class ChipEngine {
     this.setP(ch.hp.frequency, clamp(I.hpf, 10, ny));
     this.setP(ch.lp.frequency, clamp(I.cutoff, 30, ny));
     this.setP(ch.lp.Q, I.reso);
+    // 24 dB/oct = a second identical stage; at 12 dB/oct the extra stages sit wide open.
+    const steep = I.slope >= 24;
+    this.setP(ch.hp2.frequency, steep ? clamp(I.hpf, 10, ny) : 10);
+    this.setP(ch.lp2.frequency, steep ? clamp(I.cutoff, 30, ny) : ny);
+    this.setP(ch.lp2.Q, 0); // dB; keeps the second stage free of its own resonant peak
+    this.setP(ch.hp2.Q, 0);
+    this.setP(ch.eqL.gain, I.eqLow || 0);
+    this.setP(ch.eqM.gain, I.eqMid || 0);
+    this.setP(ch.eqM.frequency, clamp(I.eqMidF || 1000, 60, ny));
+    this.setP(ch.eqH.gain, I.eqHigh || 0);
     if (ch._bits !== I.bits) { ch._bits = I.bits; ch.crush.curve = I.bits >= 16 ? null : crushCurve(I.bits); }
     if (ch._drive !== I.drive) { ch._drive = I.drive; ch.drv.curve = I.drive > 0 ? driveCurve(I.drive) : null; }
     this.setP(ch.vol.gain, I.vol);
@@ -240,6 +306,56 @@ class ChipEngine {
   }
   prune() { const now = this.ctx.currentTime; this.voices = this.voices.filter(v => v.end > now); }
 
+  // Build the raw oscillator(s) for one note: { out, nodes to start/stop, det = pitch automation target }.
+  makeOsc(I, f, t) {
+    const c = this.ctx, out = c.createGain(), nodes = [], params = [], offs = [];
+    const n = I.type === 'noise' ? 1 : clamp(Math.round(I.unison || 1), 1, 7);
+    out.gain.value = (I.type === 'pwm' ? 0.5 : 1) / Math.sqrt(n);
+    for (let i = 0; i < n; i++) {
+      const off = n > 1 ? (I.uniSpread || 0) * (i / (n - 1) * 2 - 1) : 0;
+      if (I.type === 'fm') {
+        const car = c.createOscillator(), mod = c.createOscillator(), mg = c.createGain();
+        car.frequency.value = f; mod.frequency.value = f * I.fmRatio;
+        const dev = I.fmIndex * f * I.fmRatio; // peak deviation in Hz
+        mg.gain.setValueAtTime(dev, t);
+        mg.gain.setTargetAtTime(dev * clamp(I.fmSus, 0, 1), t, Math.max(0.005, I.fmDecay) / 3);
+        mod.connect(mg); mg.connect(car.frequency); car.connect(out);
+        nodes.push(car, mod); params.push(car.detune, mod.detune); offs.push(off, off);
+        continue;
+      }
+      const src = c.createBufferSource();
+      src.loop = true;
+      if (I.type === 'noise') {
+        const short = I.noiseMode === 'short';
+        src.buffer = this.noiseBuf(short);
+        src.playbackRate.value = f * (short ? 93 : 32) / c.sampleRate;
+      } else {
+        src.buffer = I.type === 'pwm' ? this.buf('ssaw', ssawData) : this.waveBuf(I);
+        src.playbackRate.value = f * src.buffer.length / c.sampleRate;
+      }
+      src.connect(out);
+      if (I.type === 'pwm') {
+        // Pulse = saw minus a delayed saw; sweeping the delay sweeps the pulse width.
+        const dl = c.createDelay(0.2), inv = c.createGain(), lg = c.createGain(), lfo = c.createOscillator();
+        const w = clamp(I.duty, 0.05, 0.95);
+        dl.delayTime.value = w / f;
+        inv.gain.value = -1;
+        lfo.type = 'triangle'; lfo.frequency.value = I.pwmRate * (1 + i * 0.13);
+        lg.gain.value = clamp(I.pwmDepth, 0, 1) * Math.min(w, 1 - w) * 0.95 / f;
+        lfo.connect(lg); lg.connect(dl.delayTime);
+        src.connect(dl); dl.connect(inv); inv.connect(out);
+        nodes.push(lfo);
+      }
+      nodes.push(src); params.push(src.detune); offs.push(off);
+    }
+    const det = {
+      setValueAtTime(v, tt) { params.forEach((p, i) => p.setValueAtTime(v + offs[i], tt)); },
+      linearRampToValueAtTime(v, tt) { params.forEach((p, i) => p.linearRampToValueAtTime(v + offs[i], tt)); },
+      connectFrom(node) { for (const p of params) node.connect(p); },
+    };
+    return { out, nodes, det };
+  }
+
   // Schedule a note. dur in seconds, or null for a held (live) note that returns a voice with release().
   noteOn(tr, pitch, vel, t, dur, register) {
     const ch = this.chains.get(tr.id);
@@ -247,18 +363,9 @@ class ChipEngine {
     const I = tr.inst, c = this.ctx;
     if (I.type === 'drums') { this.drum(ch, I, pitch, vel, t, register); return null; }
     const p = pitch + 12 * (I.octave || 0);
-    const src = c.createBufferSource();
-    if (I.type === 'noise') {
-      const short = I.noiseMode === 'short';
-      src.buffer = this.noiseBuf(short);
-      src.playbackRate.value = mtof(p) * (short ? 93 : 32) / c.sampleRate;
-    } else {
-      src.buffer = this.waveBuf(I);
-      src.playbackRate.value = mtof(p) * src.buffer.length / c.sampleRate;
-    }
-    src.loop = true;
+    const osc = this.makeOsc(I, mtof(p), t), nodes = osc.nodes;
     const A = Math.max(0.001, I.a), D = Math.max(0.002, I.d), S = clamp(I.s, 0, 1), R = Math.max(0.004, I.r);
-    const base = I.detune || 0, det = src.detune;
+    const base = I.detune || 0, det = osc.det;
     const relEnd = dur == null ? t + 8 : t + dur;
     const offs = arpOffsets(I);
     if (offs) {
@@ -274,17 +381,36 @@ class ChipEngine {
     } else det.setValueAtTime(base, t);
     ch.lastPitch = p; ch.lastEnd = relEnd;
 
-    let lfo = null;
+    const lfoNode = (rate, type) => { const o = c.createOscillator(); o.type = type || 'triangle'; o.frequency.value = rate; nodes.push(o); return o; };
     if (I.vibDepth > 0) {
-      lfo = c.createOscillator();
-      lfo.type = 'triangle';
-      lfo.frequency.value = I.vibRate;
       const lg = c.createGain();
       lg.gain.setValueAtTime(0, t);
       lg.gain.setValueAtTime(0, t + I.vibDelay);
       lg.gain.linearRampToValueAtTime(I.vibDepth, t + I.vibDelay + 0.12);
-      lfo.connect(lg); lg.connect(det);
-      lfo.start(t);
+      lfoNode(I.vibRate).connect(lg); det.connectFrom(lg);
+    }
+
+    let post = osc.out;
+    if (I.fType && I.fType !== 'off') {
+      // Per-note filter: envelope and LFO move it in cents via detune, so key tracking stays exact.
+      const vf = c.createBiquadFilter(), ny = c.sampleRate / 2 - 200;
+      vf.type = I.fType;
+      vf.frequency.value = clamp(I.fFreq * Math.pow(2, (p - 60) / 12 * (I.fKey || 0)), 20, ny);
+      vf.Q.value = I.fQ; vf.gain.value = I.fGain;
+      const amt = (I.fEnv || 0) * 1200, fA = Math.max(0.001, I.fA);
+      if (amt) {
+        vf.detune.setValueAtTime(0, t);
+        vf.detune.linearRampToValueAtTime(amt, t + fA);
+        vf.detune.setTargetAtTime(amt * clamp(I.fS, 0, 1), t + fA, Math.max(0.003, I.fD) / 3);
+      }
+      if (I.fLfoDepth > 0) { const fg = c.createGain(); fg.gain.value = I.fLfoDepth * 1200; lfoNode(I.fLfoRate, 'sine').connect(fg); fg.connect(vf.detune); }
+      post.connect(vf); post = vf;
+    }
+    if (I.tremDepth > 0) {
+      const tg = c.createGain(), td = c.createGain(), dep = clamp(I.tremDepth, 0, 1) / 2;
+      tg.gain.value = 1 - dep; td.gain.value = dep;
+      lfoNode(I.tremRate, 'sine').connect(td); td.connect(tg.gain);
+      post.connect(tg); post = tg;
     }
 
     const g = c.createGain();
@@ -305,12 +431,12 @@ class ChipEngine {
       }
       gp.linearRampToValueAtTime(0, e + R);
     }
-    src.connect(g); g.connect(ch.input);
-    src.start(t);
+    post.connect(g); g.connect(ch.input);
+    for (const n of nodes) n.start(t);
+    const stopAll = end => { for (const n of nodes) n.stop(end); };
     if (dur != null) {
       const end = t + dur + R + 0.03;
-      src.stop(end);
-      if (lfo) lfo.stop(end);
+      stopAll(end);
       if (register) this.voices.push({ g, end });
       return null;
     }
@@ -324,8 +450,7 @@ class ChipEngine {
         gp.cancelScheduledValues(t2);
         gp.setValueAtTime(l, t2);
         gp.linearRampToValueAtTime(0, t2 + R);
-        src.stop(t2 + R + 0.03);
-        if (lfo) lfo.stop(t2 + R + 0.03);
+        stopAll(t2 + R + 0.03);
       },
     };
   }
@@ -365,17 +490,19 @@ class ChipEngine {
       s.start(t + (delay || 0)); s.stop(e + 0.02);
     };
     const pulse50 = this.buf('p0.5', () => pulseData(0.5)), pulse25 = this.buf('p0.25', () => pulseData(0.25));
+    const K = DRUM_KITS[I.kit] || DRUM_KITS.chip;
+    const body = K.body === 'sine' ? this.buf('ssine', ssineData) : K.body === 'pulse' ? pulse50 : null;
     switch (pitch) {
-      case 36: tone(170, 42, 0.24, v * 1.6); noise(0.5, 0.012, v * 0.5); break;
-      case 38: noise(0.85, 0.17, v * 0.95, 900); tone(230, 150, 0.07, v * 0.7, pulse50); break;
+      case 36: tone(K.kick[0], K.kick[1], K.kick[2], v * 1.6, body); noise(0.5, 0.012, v * K.click); break;
+      case 38: noise(K.snare[0], K.snare[1], v * 0.95, K.snare[2], K.short); tone(230, 150, 0.07, v * 0.7, pulse50); break;
       case 39: noise(0.9, 0.018, v * 0.8, 1200, false, 0); noise(0.9, 0.018, v * 0.8, 1200, false, 0.012); noise(0.9, 0.16, v * 0.75, 1200, false, 0.024); break;
       case 37: tone(820, 760, 0.03, v * 0.8, pulse50); break;
-      case 42: noise(1.4, 0.045, v * 0.55, 7000); break;
-      case 46: noise(1.4, 0.3, v * 0.45, 6000); break;
+      case 42: noise(K.hat[0], K.hat[1], v * 0.55, K.hat[2], K.short); break;
+      case 46: noise(K.hat[0], K.hat[3], v * 0.45, K.hat[2] - 1000, K.short); break;
       case 49: noise(1.1, 1.3, v * 0.5, 3500); noise(1.3, 0.6, v * 0.18, 5000, true); break;
-      case 45: tone(140, 72, 0.3, v * 1.2); break;
-      case 47: tone(190, 98, 0.28, v * 1.2); break;
-      case 50: tone(260, 135, 0.26, v * 1.2); break;
+      case 45: tone(140 * K.tom, 72 * K.tom, 0.3, v * 1.2, body); break;
+      case 47: tone(190 * K.tom, 98 * K.tom, 0.28, v * 1.2, body); break;
+      case 50: tone(260 * K.tom, 135 * K.tom, 0.26, v * 1.2, body); break;
       case 56: tone(545, 540, 0.22, v * 0.5, pulse50); tone(810, 805, 0.22, v * 0.4, pulse50); break;
       default: tone(mtof(pitch), mtof(pitch) * 0.5, 0.2, v, pulse25);
     }

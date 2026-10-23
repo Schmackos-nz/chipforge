@@ -17,14 +17,19 @@ const PR = {
     new ResizeObserver(() => this.resize()).observe(this.wrap);
     new ResizeObserver(() => this.resize()).observe(this.vwrap);
     this.sc.addEventListener('scroll', () => this.requestDraw());
-    this.sc.addEventListener('mousedown', e => this.down(e));
+    bindPointer(this.sc, this);
     this.sc.addEventListener('contextmenu', e => e.preventDefault());
-    this.sc.addEventListener('mousemove', e => { if (!this.drag) this.hoverCursor(e); });
+    this.sc.addEventListener('pointermove', e => {
+      const [mx, my] = this.local(e);
+      this.hover = mx > this.KEYW && my > this.RULER ? this.tickAt(mx) : null;
+      if (!this.drag) this.hoverCursor(e);
+    });
+    this.sc.addEventListener('mouseleave', () => { this.hover = null; });
     this.sc.addEventListener('wheel', e => {
       if (e.ctrlKey) { e.preventDefault(); this.zoom(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX); }
       else if (e.altKey) { e.preventDefault(); this.rowH = clamp(this.rowH + (e.deltaY < 0 ? 1 : -1), 8, 28); this.layout(); }
     }, { passive: false });
-    this.vcv.addEventListener('mousedown', e => this.velDown(e));
+    this.vcv.addEventListener('pointerdown', e => this.velDown(e));
     this.buildToolbar();
     this.scrolledOnce = false;
   },
@@ -121,11 +126,7 @@ const PR = {
     }
     return shape.map(i => root + i);
   },
-  capture() {
-    const mv = e => this.move(e), up = e => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); this.up(e); };
-    window.addEventListener('mousemove', mv);
-    window.addEventListener('mouseup', up);
-  },
+  capture() { dragCapture(this); },
   local(e) { const r = this.sc.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; },
 
   down(e) {
@@ -134,10 +135,15 @@ const PR = {
     const pat = this.pat();
     if (!pat) return;
     e.preventDefault();
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); // so shortcuts reach the editor
     AE.ensure();
     const rows = this.rows(), tick = this.tickAt(mx), row = this.rowAt(my), u = this.snapU(e);
     if (my < this.RULER) {
-      if (mx > this.KEYW) Transport.setPatPos(Math.floor(Math.max(0, tick) / barTicks() * 4) * barTicks() / 4);
+      // Click sets the play position; dragging selects every note in that time range.
+      if (mx > this.KEYW) {
+        this.drag = { type: 'range', t0: Math.max(0, tick), t1: Math.max(0, tick), moved: false, base: e.shiftKey || e.ctrlKey ? new Set(this.sel) : new Set() };
+        this.capture();
+      }
       return;
     }
     if (mx < this.KEYW) {
@@ -154,8 +160,13 @@ const PR = {
       return;
     }
     if (e.button !== 0) return;
+    if (hit && (e.ctrlKey || e.metaKey)) {
+      // Ctrl+click toggles the note; Ctrl+drag box-selects even when starting on a note.
+      this.drag = { type: 'marquee', t0: tick, r0: row, t1: tick, r1: row, base: new Set(this.sel), toggle: hit, moved: false };
+      this.capture();
+      return;
+    }
     if (hit) {
-      if (e.ctrlKey) { if (this.sel.has(hit)) this.sel.delete(hit); else this.sel.add(hit); this.requestDraw(); return; }
       if (!this.sel.has(hit)) { this.sel.clear(); this.sel.add(hit); }
       const nearEnd = this.xOf(hit.t + hit.d) - mx < Math.max(5, Math.min(10, hit.d * this.ppt * 0.3));
       if (nearEnd) this.drag = { type: 'resize', anchor: hit, orig: [...this.sel].map(n => [n, n.d]), t0: tick, pushed: false };
@@ -167,8 +178,8 @@ const PR = {
       this.requestDraw();
       return;
     }
-    if (App.tool === 'select' || e.ctrlKey) {
-      if (!e.shiftKey && !e.ctrlKey) this.sel.clear();
+    if (App.tool === 'select' || e.ctrlKey || e.metaKey || e.shiftKey) {
+      if (!e.shiftKey && !e.ctrlKey && !e.metaKey) this.sel.clear();
       this.drag = { type: 'marquee', t0: tick, r0: row, t1: tick, r1: row, base: new Set(this.sel) };
       this.capture();
       this.requestDraw();
@@ -209,10 +220,22 @@ const PR = {
       return;
     }
     if (d.type === 'marquee') {
+      if (Math.abs(tick - d.t0) * this.ppt > 3 || row !== d.r0) d.moved = true;
+      if (d.toggle && !d.moved) return;
       d.t1 = tick; d.r1 = row;
       const t0 = Math.min(d.t0, d.t1), t1 = Math.max(d.t0, d.t1), r0 = Math.min(d.r0, d.r1), r1 = Math.max(d.r0, d.r1);
       this.sel = new Set(d.base);
       for (const n of pat.notes) { const r = rows.indexOf(n.p); if (r >= r0 && r <= r1 && n.t < t1 && n.t + n.d > t0) this.sel.add(n); }
+      this.requestDraw();
+      return;
+    }
+    if (d.type === 'range') {
+      d.t1 = Math.max(0, tick);
+      if (Math.abs(d.t1 - d.t0) * this.ppt > 3) d.moved = true;
+      if (!d.moved) return;
+      const t0 = Math.min(d.t0, d.t1), t1 = Math.max(d.t0, d.t1);
+      this.sel = new Set(d.base);
+      for (const n of pat.notes) if (n.t < t1 && n.t + n.d > t0) this.sel.add(n);
       this.requestDraw();
       return;
     }
@@ -250,6 +273,8 @@ const PR = {
     if (!d) return;
     liveOff('mouse');
     const pat = this.pat();
+    if (d.type === 'marquee' && d.toggle && !d.moved) { if (this.sel.has(d.toggle)) this.sel.delete(d.toggle); else this.sel.add(d.toggle); }
+    if (d.type === 'range' && !d.moved) Transport.setPatPos(Math.floor(d.t0 / barTicks() * 4) * barTicks() / 4);
     if (d.type === 'erase') { if (!d.changed) App.undoStack.pop(); else this.edited(); return; }
     if (d.type === 'draw') { if (d.moved && d.notes[0]) this.lastLen = d.notes[0].d; growPattern(pat); this.edited(); this.layout(); return; }
     if ((d.type === 'move' || d.type === 'resize') && d.pushed) {
@@ -284,40 +309,14 @@ const PR = {
     const pat = this.pat();
     if (!pat) return false;
     const k = e.key, ctrl = e.ctrlKey || e.metaKey, rows = this.rows();
-    const sel = [...this.sel];
-    if (ctrl && k.toLowerCase() === 'a') { this.sel = new Set(pat.notes); this.requestDraw(); return true; }
-    if (ctrl && k.toLowerCase() === 'c') { if (sel.length) { App.clipNotes = sel.map(n => Object.assign({}, n)); toast(sel.length + ' notes copied'); } return true; }
-    if (ctrl && k.toLowerCase() === 'x') { if (sel.length) { App.clipNotes = sel.map(n => Object.assign({}, n)); pushUndo(); pat.notes = pat.notes.filter(n => !this.sel.has(n)); this.sel.clear(); this.edited(); } return true; }
-    if (ctrl && k.toLowerCase() === 'v') {
-      if (!App.clipNotes || !App.clipNotes.length) return true;
-      pushUndo();
-      const minT = Math.min(...App.clipNotes.map(n => n.t));
-      let at = Transport.currentTick();
-      at = at == null ? (sel.length ? Math.max(...sel.map(n => n.t + n.d)) : Transport.patPos) : at % (pat.bars * barTicks());
-      at = Math.round(at / App.snap) * App.snap;
-      this.sel.clear();
-      for (const n of App.clipNotes) { const c = Object.assign({}, n, { t: n.t - minT + at }); pat.notes.push(c); this.sel.add(c); }
-      growPattern(pat); this.edited(); this.layout();
-      return true;
-    }
-    if (ctrl && k.toLowerCase() === 'd') {
-      if (!sel.length) return true;
-      pushUndo();
-      const s0 = Math.min(...sel.map(n => n.t)), s1 = Math.max(...sel.map(n => n.t + n.d));
-      const span = Math.ceil((s1 - s0) / App.snap) * App.snap;
-      this.sel.clear();
-      for (const n of sel) { const c = Object.assign({}, n, { t: n.t + span }); pat.notes.push(c); this.sel.add(c); }
-      growPattern(pat); this.edited(); this.layout();
-      return true;
-    }
-    if (k === 'Delete' || k === 'Backspace') {
-      if (!sel.length) return true;
-      pushUndo();
-      pat.notes = pat.notes.filter(n => !this.sel.has(n));
-      this.sel.clear();
-      this.edited();
-      return true;
-    }
+    const sel = [...this.sel], lk = k.toLowerCase();
+    if (ctrl && lk === 'a') { this.selectAll(); return true; }
+    if (ctrl && lk === 'c') { this.copy(); return true; }
+    if (ctrl && lk === 'x') { this.cut(); return true; }
+    if (ctrl && lk === 'v') { this.paste(); return true; }
+    if (ctrl && lk === 'd') { this.duplicate(); return true; }
+    if (k === 'Delete' || k === 'Backspace') { this.del(); return true; }
+    if (k === 'Escape') { this.sel.clear(); this.requestDraw(); return true; }
     if (k === 'ArrowUp' || k === 'ArrowDown') {
       if (!sel.length) return false;
       pushUndo();
@@ -340,6 +339,60 @@ const PR = {
       return true;
     }
     return false;
+  },
+
+  // ---- clipboard / selection (shared by shortcuts and toolbar buttons)
+  selectAll() { const pat = this.pat(); if (pat) { this.sel = new Set(pat.notes); this.requestDraw(); } },
+  copy() {
+    const sel = [...this.sel];
+    if (!sel.length) return toast('Select notes first (drag a box, Ctrl+click, or Ctrl+A)');
+    App.clipNotes = sel.map(n => Object.assign({}, n));
+    toast(sel.length + ' note' + (sel.length > 1 ? 's' : '') + ' copied');
+  },
+  cut() {
+    const pat = this.pat();
+    if (!pat || !this.sel.size) return;
+    App.clipNotes = [...this.sel].map(n => Object.assign({}, n));
+    pushUndo();
+    pat.notes = pat.notes.filter(n => !this.sel.has(n));
+    this.sel.clear();
+    this.edited();
+  },
+  // Pastes at the mouse if it's over the grid, else at the playhead, else right after the selection.
+  paste() {
+    const pat = this.pat();
+    if (!pat) return;
+    if (!App.clipNotes || !App.clipNotes.length) return toast('Nothing copied yet');
+    pushUndo();
+    const sel = [...this.sel], minT = Math.min(...App.clipNotes.map(n => n.t));
+    let at;
+    if (this.hover != null) at = Math.floor(Math.max(0, this.hover) / App.snap) * App.snap;
+    else {
+      at = Transport.currentTick();
+      at = at == null ? (sel.length ? Math.max(...sel.map(n => n.t + n.d)) : Transport.patPos) : at % (pat.bars * barTicks());
+      at = Math.round(at / App.snap) * App.snap;
+    }
+    this.sel.clear();
+    for (const n of App.clipNotes) { const c = Object.assign({}, n, { t: n.t - minT + at }); pat.notes.push(c); this.sel.add(c); }
+    growPattern(pat); this.edited(); this.layout();
+  },
+  duplicate() {
+    const pat = this.pat(), sel = [...this.sel];
+    if (!pat || !sel.length) return;
+    pushUndo();
+    const s0 = Math.min(...sel.map(n => n.t)), s1 = Math.max(...sel.map(n => n.t + n.d));
+    const span = Math.ceil((s1 - s0) / App.snap) * App.snap;
+    this.sel.clear();
+    for (const n of sel) { const c = Object.assign({}, n, { t: n.t + span }); pat.notes.push(c); this.sel.add(c); }
+    growPattern(pat); this.edited(); this.layout();
+  },
+  del() {
+    const pat = this.pat();
+    if (!pat || !this.sel.size) return;
+    pushUndo();
+    pat.notes = pat.notes.filter(n => !this.sel.has(n));
+    this.sel.clear();
+    this.edited();
   },
 
   // ---- toolbar actions
@@ -421,10 +474,17 @@ const PR = {
       h('button', { title: 'Longer', onclick: () => { const p = this.pat(); if (p) this.setLength(p.bars + 1); } }, '+'),
       h('span', { class: 'sep' }),
       toolBtn('draw', '✎ Draw', 'Draw / move / resize notes (right-click deletes)'),
-      toolBtn('select', '⬚ Select', 'Box select (or Ctrl+drag in draw mode)'),
+      toolBtn('select', '⬚ Select', 'Box select (or Ctrl/Shift+drag in any mode; drag the ruler to select a time range)'),
       toolBtn('erase', '⌫ Erase', 'Erase notes'),
       toolBtn('chord', '♫ Chord', 'Stamp a whole chord with one click'),
       chordSel,
+      h('span', { class: 'sep' }),
+      h('button', { title: 'Select all notes (Ctrl+A)', onclick: () => this.selectAll() }, 'All'),
+      h('button', { title: 'Copy selected notes (Ctrl+C)', onclick: () => this.copy() }, 'Copy'),
+      h('button', { title: 'Cut selected notes (Ctrl+X)', onclick: () => this.cut() }, 'Cut'),
+      h('button', { title: 'Paste (Ctrl+V) — at the mouse, playhead, or after the selection', onclick: () => this.paste() }, 'Paste'),
+      h('button', { title: 'Duplicate selection right after itself (Ctrl+D)', onclick: () => this.duplicate() }, 'Dup'),
+      h('button', { title: 'Delete selected notes (Del)', onclick: () => this.del() }, 'Del'),
       h('span', { class: 'sep' }),
       h('label', null, 'Snap', snapSel),
       h('label', null, 'Vel', velIn),
@@ -473,9 +533,9 @@ const PR = {
       this.requestDraw();
     };
     apply(e);
-    const up = () => { window.removeEventListener('mousemove', apply); window.removeEventListener('mouseup', up); if (changedAny) this.edited(); else App.undoStack.pop(); };
-    window.addEventListener('mousemove', apply);
-    window.addEventListener('mouseup', up);
+    const up = () => { window.removeEventListener('pointermove', apply); window.removeEventListener('pointerup', up); if (changedAny) this.edited(); else App.undoStack.pop(); };
+    window.addEventListener('pointermove', apply);
+    window.addEventListener('pointerup', up);
   },
 
   // ---- drawing
@@ -574,6 +634,10 @@ const PR = {
       const y0 = this.yOf(Math.min(d.r0, d.r1)), y1 = this.yOf(Math.max(d.r0, d.r1) + 1);
       g.fillStyle = 'rgba(124,242,138,.12)'; g.fillRect(x0, y0, x1 - x0, y1 - y0);
       g.strokeStyle = '#7cf28a'; g.lineWidth = 1; g.strokeRect(x0 + 0.5, y0 + 0.5, x1 - x0, y1 - y0);
+    }
+    if (d && d.type === 'range' && d.moved) {
+      const x0 = this.xOf(Math.min(d.t0, d.t1)), x1 = this.xOf(Math.max(d.t0, d.t1));
+      g.fillStyle = 'rgba(124,242,138,.08)'; g.fillRect(x0, this.RULER, x1 - x0, H);
     }
     // playhead / start marker
     const pt = this.playTick(pat);

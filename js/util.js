@@ -97,3 +97,39 @@ function readFile(file, as) {
     if (as === 'text') fr.readAsText(file); else fr.readAsArrayBuffer(file);
   });
 }
+
+// Routes pointer input to an editor with down/move/up. Mouse and pen edit straight away. Touch scrolls the
+// view natively unless touch-edit mode is on; a quick tap still counts as a click. Sets e.dbl on double-clicks/taps.
+function bindPointer(el, ed) {
+  let tap = null, last = { t: 0, x: 0, y: 0 };
+  const dbl = e => {
+    const now = performance.now(), d = now - last.t < 380 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 24;
+    last = { t: d ? 0 : now, x: e.clientX, y: e.clientY };
+    return d;
+  };
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'touch' && !document.body.classList.contains('touchedit')) { tap = { id: e.pointerId, x: e.clientX, y: e.clientY }; return; }
+    if (!e.isPrimary) return;
+    e.dbl = dbl(e);
+    ed.down(e);
+  });
+  el.addEventListener('pointerup', e => {
+    if (!tap || tap.id !== e.pointerId) return;
+    const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 10;
+    tap = null;
+    if (moved) return;
+    e.dbl = dbl(e);
+    ed.down(e);
+    if (ed.release) ed.release(e);
+  });
+  el.addEventListener('pointercancel', () => { tap = null; });
+}
+// Window-level move/up listeners for a drag; returns the function that ends it.
+function dragCapture(ed) {
+  const mv = e => ed.move(e);
+  const end = e => { window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); ed.release = null; ed.up(e); };
+  window.addEventListener('pointermove', mv);
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+  ed.release = end;
+}
